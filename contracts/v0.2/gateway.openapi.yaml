@@ -1,0 +1,102 @@
+openapi: 3.1.0
+info:
+  title: Project Sovereign Gateway
+  version: 0.2.0-alpha.0
+  description: |
+    Provider-neutral V0.2 alpha Gateway. All protected operations require a
+    verified tenant/principal identity supplied by the Auth/Security boundary.
+    `X-Tenant-Id` is not an authorization mechanism and is intentionally absent.
+servers:
+  - url: https://api.example.sovereign/v1
+paths:
+  /control-plane/check-in:
+    post:
+      operationId: controlPlaneCheckIn
+      summary: Identify or resume an Actor Instance and create a Traffic Session.
+      responses:
+        '201': {description: Traffic Session plus orientation packet}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /control-plane/traffic:
+    get:
+      operationId: currentTraffic
+      summary: Return tenant-scoped live planned and active traffic.
+      parameters:
+        - in: query
+          name: resource_id
+          schema: {type: string}
+      responses:
+        '200': {description: Current traffic board data}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /control-plane/traffic/claims:
+    post:
+      operationId: declareResourceClaim
+      summary: Declare a planned resource claim and return collision evaluation.
+      responses:
+        '201': {description: Planned claim and collision result}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /control-plane/traffic/claims/{claim_id}/activate:
+    post:
+      operationId: activateResourceClaim
+      summary: Re-evaluate current traffic and activate a claim when policy allows.
+      parameters:
+        - $ref: '#/components/parameters/ClaimId'
+      responses:
+        '200': {description: Active claim and collision result}
+        '409': {description: Approval required or claim cannot activate}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /control-plane/traffic/claims/{claim_id}/release:
+    post:
+      operationId: releaseResourceClaim
+      parameters:
+        - $ref: '#/components/parameters/ClaimId'
+      responses:
+        '200': {description: Released claim}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /control-plane/traffic/sessions/{traffic_session_id}/heartbeat:
+    post:
+      operationId: heartbeatTrafficSession
+      parameters:
+        - $ref: '#/components/parameters/TrafficSessionId'
+      responses:
+        '200': {description: Lease renewed}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /control-plane/traffic/sessions/{traffic_session_id}/checkpoints:
+    post:
+      operationId: checkpointTrafficSession
+      summary: Persist material, non-canonical progress and renew the lease.
+      parameters:
+        - $ref: '#/components/parameters/TrafficSessionId'
+      responses:
+        '201': {description: Traffic checkpoint}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /control-plane/traffic/sessions/{traffic_session_id}/checkout:
+    post:
+      operationId: checkoutTrafficSession
+      summary: Release all open claims and record outcomes, artifacts, blockers, and next action.
+      parameters:
+        - $ref: '#/components/parameters/TrafficSessionId'
+      responses:
+        '200': {description: Checked-out Traffic Session}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+components:
+  securitySchemes:
+    neonAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    ClaimId:
+      name: claim_id
+      in: path
+      required: true
+      schema: {type: string}
+    TrafficSessionId:
+      name: traffic_session_id
+      in: path
+      required: true
+      schema: {type: string}
+  responses:
+    Unauthorized:
+      description: Missing, invalid, revoked, or cross-tenant identity.
+security:
+  - neonAuth: []

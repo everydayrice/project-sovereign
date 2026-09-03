@@ -1,0 +1,15 @@
+{
+  "name": "@project-sovereign/core",
+  "version": "0.2.0-alpha.0",
+  "private": true,
+  "description": "Provider-neutral persistent AI intelligence platform — V0.2 Control Plane alpha.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test",
+    "test:coverage": "node --test --experimental-test-coverage",
+    "check": "node --check src/worker.mjs && node --check src/platform/sovereign-platform.mjs && node --check src/control-plane/traffic-service.mjs"
+  }
+}

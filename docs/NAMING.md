@@ -10,7 +10,7 @@ There is one platform. It has four first-class core modules:
 
 1. **COMMAND** — governance, administration, policy, permissions, authority, personalization, module configuration, integrations, audit and system controls.
 2. **INTELLIGENCE** — durable canonical knowledge, memory, relationships, provenance, source registry, decisions and approved long-lived state.
-3. **CONTROL PLANE** — the runtime traffic director. It resolves what matters now, which authority/source/model/agent/tool should be used, how much context should be loaded, and what should be excluded.
+3. **CONTROL PLANE** — the runtime traffic director. It returns orientation, authority/source and available agent/model/tool routes, plus live traffic. The authorized actor chooses how much context to retrieve within enforced policy boundaries.
 4. **CONTINUITY** — durable non-canonical working state for unfinished cognition and activity across sessions, devices and AI providers.
 
 These four names are first-class product modules. New nouns should not be promoted to peer modules without a durable responsibility that cannot cleanly belong to one of these four.
@@ -57,7 +57,7 @@ The following are core object types used by modules:
 - Relationship
 - Decision
 - Policy
-- Context Packet
+- Control Plane Orientation Packet
 - Candidate Memory
 - Task Capsule
 - Session Capsule

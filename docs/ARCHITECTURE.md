@@ -12,12 +12,13 @@ A fresh authorized agent should be able to:
 
 1. understand what it is working on;
 2. quickly learn where relevant intelligence, continuity and authoritative sources live;
-3. choose its own context appetite and retrieve as much or as little authorized context as the task requires;
-4. know where truth comes from and what is authoritative;
-5. resume unfinished work without reconstructing it from chat history;
-6. preserve material durable changes without turning every conversation into canonical truth;
-7. operate within tenant-defined policy, privacy and permissions;
-8. expose its routing/context inputs and state transitions sufficiently for audit and debugging.
+3. see who else is actively working in overlapping resources before it collides with them;
+4. choose its own context appetite and retrieve as much or as little authorized context as the task requires;
+5. know where truth comes from and what is authoritative;
+6. resume unfinished work without reconstructing it from chat history;
+7. preserve material durable changes without turning every conversation into canonical truth;
+8. operate within tenant-defined policy, privacy and permissions;
+9. expose its routing/context/traffic state transitions sufficiently for audit and debugging.
 
 ## Four core modules
 
@@ -37,6 +38,7 @@ COMMAND owns tenant-configurable behavior and control, including:
 - extension installation and permissions;
 - privacy and retention settings;
 - explicit resource/budget ceilings where the tenant chooses to impose them;
+- traffic collision/exclusivity/lease policies;
 - write/promotion permissions;
 - audit and system controls;
 - branding/personalization of the tenant's Command instance.
@@ -64,11 +66,13 @@ Raw source documents remain in source systems or protected object storage when p
 
 ### CONTROL PLANE
 
-The orientation and traffic-control module.
+The orientation, routing and traffic-coordination module.
 
-CONTROL PLANE is intentionally lightweight. Its primary job is to quickly orient an AI model, agent, bot, human or extension to the environment: what domain it is in, where relevant things live, which sources are authoritative, what continuity exists, what is current/volatile, and which paths are available next.
+CONTROL PLANE is intentionally lightweight. Its first job is to quickly orient an AI model, agent, bot, human or extension to the environment: what domain it is in, where relevant things live, which sources are authoritative, what continuity exists, what is current/volatile, and which paths are available next.
 
-It should behave more like an ATC/routing brief than an automatic context rationer.
+Its second equally important job is to maintain a **live traffic picture**: who is currently working, which resources they are using or intend to use, what their intent is, when they were last seen, and whether another actor is about to enter overlapping work.
+
+It should behave like an ATC tower: **map + routing + traffic awareness**, not an automatic context rationer and not the worker itself.
 
 Responsibilities include:
 
@@ -81,15 +85,21 @@ Responsibilities include:
 - pointers to relevant Continuity/session/task state;
 - pointers to live systems and extensions;
 - agent/model/tool capability map and routing options;
-- compact orientation/context packet;
+- compact orientation packet;
 - context revision and route trace;
+- Traffic Session check-in/check-out;
+- Resource Claims describing resource, intent and scope;
+- current-traffic lookup and collision warnings;
+- traffic lease/heartbeat/checkpoint state;
+- re-evaluation when an actor activates or changes resources;
+- policy-driven shared/caution/exclusive coordination;
 - safe fallback/escalation information.
 
 CONTROL PLANE does **not** decide the agent's context appetite in V1.
 
 After orientation, the authorized agent chooses whether to retrieve narrowly, broadly or deeply from Intelligence, Continuity and registered sources. The platform may expose convenience appetite modes or recommendations, but these are agent/user choices rather than hidden automatic throttles.
 
-The only mandatory limits are hard boundaries enforced by Command and platform security, such as:
+The only mandatory context/access limits are hard boundaries enforced by Command and platform security, such as:
 
 - tenant isolation;
 - permissions and scopes;
@@ -98,7 +108,11 @@ The only mandatory limits are hard boundaries enforced by Command and platform s
 - explicit user/admin resource or spend ceilings;
 - hard technical limits needed to protect service reliability.
 
-CONTROL PLANE may observe context/retrieval behavior and collect telemetry. Later versions may recommend more efficient retrieval based on real outcome data, but V1 must not sacrifice capability by assuming in advance that the smallest context is best.
+Traffic coordination is different: Command may define when concurrent work is merely informational, cautionary, approval-gated or exclusive. Reads and independent branches can normally coexist; same-branch writes, production deployments, migrations and destructive/admin operations can require stronger coordination.
+
+CONTROL PLANE may observe both context/retrieval behavior and concurrency outcomes. Later versions may recommend more efficient retrieval and safer concurrency policies based on real outcome data, but V1 must not sacrifice capability by assuming in advance that the smallest context or broadest lock is best.
+
+See [`CONTROL-PLANE.md`](CONTROL-PLANE.md) and [`TRAFFIC-CONTROL.md`](TRAFFIC-CONTROL.md).
 
 ### CONTINUITY
 
@@ -118,7 +132,8 @@ It owns high-churn resumable objects such as:
 - candidate memories;
 - ideas/hypotheses;
 - conversation/session resumability;
-- handoffs between agents and execution surfaces.
+- handoffs between agents and execution surfaces;
+- material Traffic Session/Resource Claim state needed for resumability.
 
 Continuity can persist for a long time while still remaining non-canonical. Promotion into Intelligence requires reconciliation through Protocol and tenant Command policy.
 
@@ -132,14 +147,18 @@ The V1 lifecycle is:
 
 ```text
 IDENTIFY TENANT + ACTOR
-→ ORIENT TASK/SCOPE THROUGH CONTROL PLANE
+→ CONTROL PLANE CHECK-IN / TRAFFIC SESSION
+→ ORIENT TASK/SCOPE
 → RESOLVE POLICY + AUTHORITY MAP
-→ RETURN COMPACT TERRAIN/ROUTING BRIEF
+→ RETURN COMPACT TERRAIN + CURRENT TRAFFIC BRIEF
+→ DECLARE/PLAN RESOURCE CLAIMS
 → AGENT CHOOSES CONTEXT APPETITE
 → RETRIEVE AUTHORIZED INTELLIGENCE + CONTINUITY + LIVE SOURCES AS NEEDED
+→ ACTIVATE RESOURCE CLAIM BEFORE MUTATION / RE-CHECK CURRENT TRAFFIC
 → EXECUTE
+→ HEARTBEAT / CHECKPOINT MATERIAL PROGRESS OR MOVEMENT
 → VERIFY
-→ CHECKPOINT CONTINUITY
+→ RELEASE RESOURCE CLAIMS / CHECK OUT
 → RECONCILE MATERIAL CHANGES
 → PROMOTE/SYNC ONLY WHEN JUSTIFIED + AUTHORIZED
 → AUDIT
@@ -158,16 +177,18 @@ Protocol invariants include:
 - tenant isolation is enforced outside model reasoning;
 - consequential writes are attributable and auditable;
 - extensions receive only explicitly granted scopes and cannot bypass Command policy;
-- Control Plane orientation does not silently restrict an authorized agent to a platform-chosen minimum context set.
+- Control Plane orientation does not silently restrict an authorized agent to a platform-chosen minimum context set;
+- Sovereign-aware managed-resource mutation requires a current Traffic Session and applicable Resource Claim;
+- abandoned traffic expires to `stale` instead of remaining a permanent lock or being falsely marked complete.
 
 ## Platform planes
 
 The modules use five information/operational planes:
 
 1. **Canonical plane** — approved durable Intelligence.
-2. **Continuity plane** — non-canonical working state.
+2. **Continuity plane** — non-canonical working state and material resumable coordination state.
 3. **Source plane** — raw/large/sensitive/external material and live authorities.
-4. **Runtime plane** — rebuildable indexes, caches, embeddings, telemetry and temporary execution metadata.
+4. **Runtime plane** — rebuildable indexes, caches, embeddings, telemetry, active traffic registry and temporary execution metadata.
 5. **Execution plane** — external agents/tools/providers and optional Compute environments.
 
 ## Interfaces
@@ -183,7 +204,7 @@ V1 interface families:
 - CLI for development/administration;
 - adapter SDK contracts.
 
-Gateway operations must not create vendor-specific canonical data models.
+Gateway operations must not create vendor-specific canonical data models. Traffic check-in/claims/checkpoints/check-out must be available through the same provider-neutral interface so Claude, ChatGPT, Codex, humans and future agents participate in one shared traffic picture.
 
 ### Console
 
@@ -197,6 +218,8 @@ One human-facing platform shell exposes only core platform administration and in
 - Extensions
 - Integrations
 - Audit/Health
+
+The Control Plane view includes the live traffic board in addition to the terrain/authority map.
 
 Specialized products such as Queue Tracker and Idea Tracker may contribute extension views to the shell or run as separate applications, but remain outside Sovereign core.
 
@@ -242,9 +265,10 @@ V1 may provide:
 - model/provider/reasoning route recommendations;
 - latency/retry telemetry;
 - tokens/context/calls/cost measurements;
-- suggested appetite/routing improvements based on observed outcomes.
+- suggested appetite/routing improvements based on observed outcomes;
+- concurrency/collision telemetry and suggested traffic-policy improvements.
 
-V1 should **observe before it optimizes**. It must not automatically reduce context merely to minimize token count if that can degrade task quality.
+V1 should **observe before it optimizes**. It must not automatically reduce context merely to minimize token count if that can degrade task quality, and it should not hard-lock broad resources where warning/branch isolation would be enough.
 
 It does not own business truth.
 
@@ -261,6 +285,8 @@ Security includes tenant isolation, identity, authentication, authorization, enc
 ### RICE Lightning Queue Tracker
 
 The first planned alpha extension is a Queue Tracker supplied by RICE Lightning. It may track open/closed chats, tasks and workflows by consuming authorized Task Capsule, Session Capsule and checkpoint interfaces. It is not part of Sovereign core and does not own canonical intelligence.
+
+Queue may optionally surface Control Plane traffic/activity in its workflow UI through scoped traffic-read events/APIs, but the Control Plane remains the traffic authority.
 
 ### RICE Lightning Ideas
 
@@ -283,6 +309,8 @@ The tenant may present COMMAND as **RICE COMMAND** while still using the same un
 Existing `everydayrice/rice-command` is treated as a migration/source authority for RICE's current canonical intelligence and continuity history. Sovereign does not silently redefine repository history. V1 migration should import/reconcile RICE records with preserved provenance and retain a rollback/export path.
 
 RICE Lightning is an external product ecosystem from Sovereign's perspective, even when both are controlled by the same owner during alpha. This is deliberate: it tests the extension boundary against a real independent client instead of giving first-party code privileged hidden access.
+
+The RICE alpha should deliberately run concurrent Claude/ChatGPT/Codex workflows to validate that traffic check-in, warnings, branch/path awareness, checkpoints, stale leases and checkout behavior reduce real collisions without creating unnecessary blocking.
 
 ## Independence rule
 

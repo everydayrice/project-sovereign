@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://project-sovereign.dev/contracts/v0.2/product-alpha.schema.json",
+  "title": "Project Sovereign V0.2 product-alpha contracts",
+  "description": "Additive contracts for visible source lifecycle, canonical history, initialization, recovery, and bounded failure learning. All tenant-owned objects have opaque identifiers and tenant_id.",
+  "$defs": {
+    "Id": { "type": "string", "minLength": 3, "maxLength": 128 },
+    "Json": {},
+    "TenantScoped": { "type": "object", "required": ["tenant_id"], "properties": { "tenant_id": { "$ref": "#/$defs/Id" } } },
+    "Workspace": {
+      "allOf": [
+        { "$ref": "#/$defs/TenantScoped" },
+        { "type": "object", "required": ["workspace_id", "slug", "display_name", "state"], "properties": {
+          "workspace_id": { "$ref": "#/$defs/Id" }, "parent_workspace_id": { "$ref": "#/$defs/Id" },
+          "slug": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{1,62}$" }, "display_name": { "type": "string", "minLength": 1 },
+          "state": { "enum": ["active", "suspended", "archived"] }, "settings": { "$ref": "#/$defs/Json" }
+        } }
+      ]
+    },
+    "SourceConnector": {
+      "type": "object", "required": ["connector_key", "display_name", "category", "auth_kind", "supports", "requested_scopes"], "properties": {
+        "connector_key": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{1,63}$" }, "display_name": { "type": "string", "minLength": 1 },
+        "category": { "enum": ["external_authoritative", "sovereign_managed", "live_system", "imported_snapshot", "reference_only"] },
+        "auth_kind": { "enum": ["none", "oauth2", "api_key", "service_account", "manual"] }, "supports": { "type": "array", "items": { "type": "string" } },
+        "requested_scopes": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "SourceLifecycle": {
+      "allOf": [
+        { "$ref": "#/$defs/TenantScoped" },
+        { "type": "object", "required": ["source_id", "source_category", "display_name", "canonical_locator", "connection_state", "processing_state", "currentness", "health_state"], "properties": {
+          "source_id": { "$ref": "#/$defs/Id" }, "connector_key": { "type": ["string", "null"] },
+          "source_category": { "enum": ["external_authoritative", "sovereign_managed", "live_system", "imported_snapshot", "reference_only"] },
+          "display_name": { "type": "string", "minLength": 1 }, "canonical_locator": { "type": "string", "minLength": 1 },
+          "connection_state": { "enum": ["not_connected", "authorization_required", "connected", "disconnected", "failed"] },
+          "processing_state": { "enum": ["connected", "inventoried", "indexed", "analyzed", "studied", "canonicalized", "partial", "failed"] },
+          "currentness": { "enum": ["current", "stale", "failed", "partial", "unknown"] },
+          "health_state": { "enum": ["healthy", "initializing", "attention_required", "partial", "failed"] },
+          "item_count": { "type": "integer", "minimum": 0 }, "metadata": { "$ref": "#/$defs/Json" }
+        } }
+      ]
+    },
+    "CandidateIntelligence": {
+      "allOf": [
+        { "$ref": "#/$defs/TenantScoped" },
+        { "type": "object", "required": ["candidate_intelligence_id", "record_type", "payload", "state", "confidence", "proposed_by_principal_id"], "properties": {
+          "candidate_intelligence_id": { "$ref": "#/$defs/Id" }, "record_type": { "enum": ["fact", "decision", "policy", "entity", "project", "domain", "architecture", "constraint", "relationship", "summary"] },
+          "payload": { "$ref": "#/$defs/Json" }, "scope": { "$ref": "#/$defs/Json" }, "source_ids": { "type": "array", "items": { "$ref": "#/$defs/Id" } },
+          "provenance": { "type": "array", "items": { "$ref": "#/$defs/Json" } }, "confidence": { "enum": ["low", "medium", "high"] },
+          "state": { "enum": ["proposed", "under_review", "accepted", "rejected", "superseded"] }, "proposed_by_principal_id": { "$ref": "#/$defs/Id" }
+        } }
+      ]
+    },
+    "CanonicalOperation": {
+      "type": "object", "required": ["type"], "properties": {
+        "type": { "enum": ["add", "update", "supersede", "tombstone", "restore"] }, "record_id": { "$ref": "#/$defs/Id" },
+        "record": { "$ref": "#/$defs/Json" }, "patch": { "$ref": "#/$defs/Json" }, "replacement": { "$ref": "#/$defs/Json" },
+        "reason": { "type": "string" }, "snapshot": { "$ref": "#/$defs/Json" }
+      }
+    },
+    "CanonicalChangeSet": {
+      "allOf": [
+        { "$ref": "#/$defs/TenantScoped" },
+        { "type": "object", "required": ["canonical_change_set_id", "title", "reason", "state", "base_canonical_revision", "operations"], "properties": {
+          "canonical_change_set_id": { "$ref": "#/$defs/Id" }, "title": { "type": "string", "minLength": 1 }, "reason": { "type": "string", "minLength": 1 },
+          "state": { "enum": ["pending_approval", "ready", "applied", "rejected", "superseded"] }, "requires_approval": { "type": "boolean" },
+          "base_canonical_revision": { "type": "integer", "minimum": 0 }, "resulting_canonical_revision": { "type": ["integer", "null"], "minimum": 0 },
+          "affected_record_ids": { "type": "array", "items": { "$ref": "#/$defs/Id" } }, "operations": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/CanonicalOperation" } },
+          "revert_of_change_set_id": { "$ref": "#/$defs/Id" }
+        } }
+      ]
+    },
+    "CanonicalCheckpoint": {
+      "allOf": [
+        { "$ref": "#/$defs/TenantScoped" },
+        { "type": "object", "required": ["canonical_checkpoint_id", "canonical_revision", "title", "reason", "change_set_ids", "revision_hash"], "properties": {
+          "canonical_checkpoint_id": { "$ref": "#/$defs/Id" }, "canonical_revision": { "type": "integer", "minimum": 0 },
+          "title": { "type": "string", "minLength": 1 }, "reason": { "type": "string", "minLength": 1 }, "scope": { "$ref": "#/$defs/Json" },
+          "change_set_ids": { "type": "array", "items": { "$ref": "#/$defs/Id" } }, "change_summary": { "$ref": "#/$defs/Json" }, "revision_hash": { "type": "string", "minLength": 1 }
+        } }
+      ]
+    },
+    "InitializationRun": {
+      "allOf": [
+        { "$ref": "#/$defs/TenantScoped" },
+        { "type": "object", "required": ["initialization_run_id", "mode", "state", "source_ids", "coverage"], "properties": {
+          "initialization_run_id": { "$ref": "#/$defs/Id" }, "mode": { "enum": ["initialize", "study", "sweep"] },
+          "state": { "enum": ["running", "completed", "partial", "failed", "cancelled"] }, "scope": { "$ref": "#/$defs/Json" },
+          "source_ids": { "type": "array", "items": { "$ref": "#/$defs/Id" } }, "coverage": { "$ref": "#/$defs/Json" },
+          "canonical_change_set_id": { "$ref": "#/$defs/Id" }
+        } }
+      ]
+    },
+    "RecoverySession": {
+      "allOf": [
+        { "$ref": "#/$defs/TenantScoped" },
+        { "type": "object", "required": ["recovery_session_id", "state", "canonical_snapshot_revision", "risky_canonical_automation_paused", "findings"], "properties": {
+          "recovery_session_id": { "$ref": "#/$defs/Id" }, "state": { "enum": ["active", "completed", "cancelled"] },
+          "scope": { "$ref": "#/$defs/Json" }, "canonical_snapshot_revision": { "type": "integer", "minimum": 0 },
+          "risky_canonical_automation_paused": { "type": "boolean" }, "findings": { "$ref": "#/$defs/Json" }
+        } }
+      ]
+    },
+    "FailureEvent": {
+      "allOf": [
+        { "$ref": "#/$defs/TenantScoped" },
+        { "type": "object", "required": ["failure_event_id", "kind", "summary", "status"], "properties": {
+          "failure_event_id": { "$ref": "#/$defs/Id" }, "kind": { "type": "string" }, "summary": { "type": "string", "minLength": 1 },
+          "status": { "enum": ["open", "triaged", "resolved", "dismissed"] }, "scope": { "$ref": "#/$defs/Json" }, "evidence": { "type": "array", "items": { "$ref": "#/$defs/Json" } }
+        } }
+      ]
+    }
+  },
+  "oneOf": [
+    { "$ref": "#/$defs/Workspace" }, { "$ref": "#/$defs/SourceConnector" }, { "$ref": "#/$defs/SourceLifecycle" },
+    { "$ref": "#/$defs/CandidateIntelligence" }, { "$ref": "#/$defs/CanonicalChangeSet" }, { "$ref": "#/$defs/CanonicalCheckpoint" },
+    { "$ref": "#/$defs/InitializationRun" }, { "$ref": "#/$defs/RecoverySession" }, { "$ref": "#/$defs/FailureEvent" }
+  ]
+}

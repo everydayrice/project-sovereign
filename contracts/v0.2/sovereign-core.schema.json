@@ -1,0 +1,331 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://project-sovereign.dev/contracts/v0.2/sovereign-core.schema.json",
+  "title": "Project Sovereign V0.2 core contracts",
+  "description": "Provider-neutral, tenant-isolated core object contracts. Timestamps are RFC 3339 date-times and identifiers are opaque Sovereign identifiers.",
+  "oneOf": [
+    {"$ref": "#/$defs/Tenant"},
+    {"$ref": "#/$defs/Principal"},
+    {"$ref": "#/$defs/ActorInstance"},
+    {"$ref": "#/$defs/TrafficSession"},
+    {"$ref": "#/$defs/Resource"},
+    {"$ref": "#/$defs/ResourceClaim"},
+    {"$ref": "#/$defs/TrafficCheckpoint"},
+    {"$ref": "#/$defs/SessionCapsule"},
+    {"$ref": "#/$defs/TaskCapsule"},
+    {"$ref": "#/$defs/CandidateMemory"},
+    {"$ref": "#/$defs/CanonicalIntelligenceRecord"},
+    {"$ref": "#/$defs/Source"},
+    {"$ref": "#/$defs/Provenance"},
+    {"$ref": "#/$defs/Policy"},
+    {"$ref": "#/$defs/Extension"},
+    {"$ref": "#/$defs/ExtensionManifest"},
+    {"$ref": "#/$defs/ExtensionGrant"},
+    {"$ref": "#/$defs/AuditEvent"},
+    {"$ref": "#/$defs/ControlPlaneOrientationPacket"}
+  ],
+  "$defs": {
+    "Id": {"type": "string", "minLength": 3, "maxLength": 128},
+    "Timestamp": {"type": "string", "format": "date-time"},
+    "Json": {},
+    "TenantScoped": {
+      "type": "object",
+      "properties": {"tenant_id": {"$ref": "#/$defs/Id"}},
+      "required": ["tenant_id"]
+    },
+    "Attribution": {
+      "type": "object",
+      "properties": {
+        "principal_id": {"$ref": "#/$defs/Id"},
+        "actor_instance_id": {"$ref": "#/$defs/Id"},
+        "traffic_session_id": {"$ref": "#/$defs/Id"}
+      },
+      "required": ["principal_id"]
+    },
+    "Revision": {
+      "type": "object",
+      "properties": {
+        "revision": {"type": "integer", "minimum": 1},
+        "created_at": {"$ref": "#/$defs/Timestamp"},
+        "updated_at": {"$ref": "#/$defs/Timestamp"}
+      },
+      "required": ["revision", "created_at", "updated_at"]
+    },
+    "ProviderMetadata": {
+      "type": "object",
+      "properties": {
+        "provider_id": {"$ref": "#/$defs/Id"},
+        "provider_key": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]{1,63}$"},
+        "display_name": {"type": "string", "minLength": 1, "maxLength": 160},
+        "account_reference": {"type": "string", "maxLength": 512},
+        "metadata": {"$ref": "#/$defs/Json"}
+      },
+      "required": ["provider_id", "provider_key", "display_name"]
+    },
+    "SurfaceMetadata": {
+      "type": "object",
+      "properties": {
+        "surface_id": {"$ref": "#/$defs/Id"},
+        "provider_id": {"$ref": "#/$defs/Id"},
+        "surface_key": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]{1,63}$"},
+        "display_name": {"type": "string", "minLength": 1, "maxLength": 160},
+        "surface_type": {"enum": ["chat", "workspace", "coding", "api", "mcp", "cli", "human", "extension", "other"]},
+        "metadata": {"$ref": "#/$defs/Json"}
+      },
+      "required": ["surface_id", "provider_id", "surface_key", "display_name", "surface_type"]
+    },
+    "Tenant": {
+      "allOf": [
+        {"$ref": "#/$defs/TenantScoped"},
+        {"$ref": "#/$defs/Revision"},
+        {"type": "object", "properties": {
+          "tenant_id": {"$ref": "#/$defs/Id"},
+          "slug": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{1,62}$"},
+          "display_name": {"type": "string", "minLength": 1, "maxLength": 160},
+          "command_display_name": {"type": "string", "minLength": 1, "maxLength": 160},
+          "state": {"enum": ["active", "suspended", "archived"]},
+          "branding": {"$ref": "#/$defs/Json"},
+          "retention_policy_id": {"$ref": "#/$defs/Id"}
+        }, "required": ["slug", "display_name", "command_display_name", "state"]}
+      ]
+    },
+    "Principal": {
+      "allOf": [
+        {"$ref": "#/$defs/TenantScoped"}, {"$ref": "#/$defs/Revision"},
+        {"type": "object", "properties": {
+          "principal_id": {"$ref": "#/$defs/Id"},
+          "kind": {"enum": ["human", "service", "extension"]},
+          "display_name": {"type": "string", "minLength": 1, "maxLength": 160},
+          "state": {"enum": ["active", "suspended", "revoked"]},
+          "auth_subject_reference": {"type": "string", "maxLength": 512},
+          "role_ids": {"type": "array", "items": {"$ref": "#/$defs/Id"}, "uniqueItems": true}
+        }, "required": ["principal_id", "kind", "display_name", "state"]}
+      ]
+    },
+    "ActorInstance": {
+      "allOf": [
+        {"$ref": "#/$defs/TenantScoped"}, {"$ref": "#/$defs/Revision"},
+        {"type": "object", "properties": {
+          "actor_instance_id": {"$ref": "#/$defs/Id"},
+          "principal_id": {"$ref": "#/$defs/Id"},
+          "provider": {"$ref": "#/$defs/ProviderMetadata"},
+          "surface": {"$ref": "#/$defs/SurfaceMetadata"},
+          "external_session_id": {"type": "string", "minLength": 1, "maxLength": 1024},
+          "model_metadata": {"$ref": "#/$defs/Json"},
+          "agent_profile_id": {"$ref": "#/$defs/Id"},
+          "state": {"enum": ["active", "inactive", "revoked"]},
+          "last_seen_at": {"$ref": "#/$defs/Timestamp"}
+        }, "required": ["actor_instance_id", "principal_id", "provider", "surface", "state", "last_seen_at"]}
+      ]
+    },
+    "TrafficSession": {
+      "allOf": [
+        {"$ref": "#/$defs/TenantScoped"}, {"$ref": "#/$defs/Revision"},
+        {"type": "object", "properties": {
+          "traffic_session_id": {"$ref": "#/$defs/Id"},
+          "actor_instance_id": {"$ref": "#/$defs/Id"},
+          "principal_id": {"$ref": "#/$defs/Id"},
+          "task_capsule_id": {"$ref": "#/$defs/Id"},
+          "parent_traffic_session_id": {"$ref": "#/$defs/Id"},
+          "objective": {"type": "string", "minLength": 1, "maxLength": 2000},
+          "state": {"enum": ["planned", "active", "waiting", "blocked", "completed", "cancelled", "stale"]},
+          "context_appetite": {"enum": ["lean", "standard", "broad", "deep", "custom"]},
+          "checked_in_at": {"$ref": "#/$defs/Timestamp"},
+          "last_heartbeat_at": {"$ref": "#/$defs/Timestamp"},
+          "lease_expires_at": {"$ref": "#/$defs/Timestamp"},
+          "checked_out_at": {"$ref": "#/$defs/Timestamp"},
+          "next_action": {"type": "string", "maxLength": 4000},
+          "outcome": {"$ref": "#/$defs/Json"}
+        }, "required": ["traffic_session_id", "actor_instance_id", "principal_id", "objective", "state", "checked_in_at", "last_heartbeat_at", "lease_expires_at"]}
+      ]
+    },
+    "Resource": {
+      "allOf": [
+        {"$ref": "#/$defs/TenantScoped"}, {"$ref": "#/$defs/Revision"},
+        {"type": "object", "properties": {
+          "resource_id": {"$ref": "#/$defs/Id"},
+          "resource_type": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]{1,63}$"},
+          "authority": {"type": "string", "minLength": 1, "maxLength": 255},
+          "canonical_locator": {"type": "string", "minLength": 1, "maxLength": 4096},
+          "display_name": {"type": "string", "maxLength": 512},
+          "metadata": {"$ref": "#/$defs/Json"}
+        }, "required": ["resource_id", "resource_type", "authority", "canonical_locator"]}
+      ]
+    },
+    "ResourceScope": {
+      "type": "object",
+      "properties": {
+        "branch": {"type": "string", "maxLength": 512},
+        "worktree": {"type": "string", "maxLength": 2048},
+        "paths": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 4096}, "uniqueItems": true},
+        "environment": {"type": "string", "maxLength": 512},
+        "database": {"type": "string", "maxLength": 512},
+        "schema": {"type": "string", "maxLength": 512},
+        "object_reference": {"type": "string", "maxLength": 2048},
+        "requires_freshness": {"type": "boolean"},
+        "metadata": {"$ref": "#/$defs/Json"}
+      },
+      "additionalProperties": false
+    },
+    "ResourceClaim": {
+      "allOf": [
+        {"$ref": "#/$defs/TenantScoped"}, {"$ref": "#/$defs/Revision"},
+        {"type": "object", "properties": {
+          "resource_claim_id": {"$ref": "#/$defs/Id"},
+          "traffic_session_id": {"$ref": "#/$defs/Id"},
+          "resource_id": {"$ref": "#/$defs/Id"},
+          "intent": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]{1,63}$"},
+          "scope": {"$ref": "#/$defs/ResourceScope"},
+          "coordination_level": {"enum": ["shared", "caution", "exclusive"]},
+          "state": {"enum": ["planned", "active", "released", "stale"]},
+          "lease_expires_at": {"$ref": "#/$defs/Timestamp"},
+          "activated_at": {"$ref": "#/$defs/Timestamp"},
+          "released_at": {"$ref": "#/$defs/Timestamp"},
+          "related_artifact_references": {"type": "array", "items": {"type": "string", "maxLength": 2048}}
+        }, "required": ["resource_claim_id", "traffic_session_id", "resource_id", "intent", "scope", "coordination_level", "state", "lease_expires_at"]}
+      ]
+    },
+    "TrafficCheckpoint": {
+      "allOf": [
+        {"$ref": "#/$defs/TenantScoped"}, {"$ref": "#/$defs/Revision"},
+        {"type": "object", "properties": {
+          "traffic_checkpoint_id": {"$ref": "#/$defs/Id"},
+          "traffic_session_id": {"$ref": "#/$defs/Id"},
+          "task_capsule_id": {"$ref": "#/$defs/Id"},
+          "kind": {"enum": ["progress", "resource_transition", "blocked", "waiting", "handoff", "verification", "checkout"]},
+          "summary": {"type": "string", "minLength": 1, "maxLength": 8000},
+          "next_action": {"type": "string", "maxLength": 4000},
+          "blockers": {"type": "array", "items": {"type": "string", "maxLength": 2000}},
+          "artifact_references": {"type": "array", "items": {"type": "string", "maxLength": 2048}},
+          "created_by": {"$ref": "#/$defs/Attribution"}
+        }, "required": ["traffic_checkpoint_id", "traffic_session_id", "kind", "summary", "created_by"]}
+      ]
+    },
+    "SessionCapsule": {
+      "allOf": [
+        {"$ref": "#/$defs/TenantScoped"}, {"$ref": "#/$defs/Revision"},
+        {"type": "object", "properties": {
+          "session_capsule_id": {"$ref": "#/$defs/Id"}, "actor_instance_id": {"$ref": "#/$defs/Id"},
+          "task_capsule_id": {"$ref": "#/$defs/Id"}, "state": {"enum": ["active", "waiting", "blocked", "closed", "stale"]},
+          "working_assumptions": {"type": "array", "items": {"type": "string", "maxLength": 4000}},
+          "unresolved_questions": {"type": "array", "items": {"type": "string", "maxLength": 4000}},
+          "resume_state": {"$ref": "#/$defs/Json"}
+        }, "required": ["session_capsule_id", "actor_instance_id", "state"]}
+      ]
+    },
+    "TaskCapsule": {
+      "allOf": [
+        {"$ref": "#/$defs/TenantScoped"}, {"$ref": "#/$defs/Revision"},
+        {"type": "object", "properties": {
+          "task_capsule_id": {"$ref": "#/$defs/Id"}, "title": {"type": "string", "minLength": 1, "maxLength": 512},
+          "objective": {"type": "string", "minLength": 1, "maxLength": 8000},
+          "state": {"enum": ["planned", "active", "waiting", "blocked", "completed", "cancelled"]},
+          "owner_principal_id": {"$ref": "#/$defs/Id"}, "next_action": {"type": "string", "maxLength": 4000},
+          "blockers": {"type": "array", "items": {"type": "string", "maxLength": 2000}},
+          "intelligence_references": {"type": "array", "items": {"$ref": "#/$defs/Id"}}
+        }, "required": ["task_capsule_id", "title", "objective", "state", "owner_principal_id"]}
+      ]
+    },
+    "CandidateMemory": {
+      "allOf": [
+        {"$ref": "#/$defs/TenantScoped"}, {"$ref": "#/$defs/Revision"},
+        {"type": "object", "properties": {
+          "candidate_memory_id": {"$ref": "#/$defs/Id"}, "kind": {"enum": ["fact", "decision", "constraint", "relationship", "summary", "other"]},
+          "content": {"$ref": "#/$defs/Json"}, "state": {"enum": ["proposed", "under_review", "accepted", "rejected", "superseded"]},
+          "provenance_ids": {"type": "array", "items": {"$ref": "#/$defs/Id"}, "minItems": 1},
+          "proposed_by": {"$ref": "#/$defs/Attribution"}
+        }, "required": ["candidate_memory_id", "kind", "content", "state", "provenance_ids", "proposed_by"]}
+      ]
+    },
+    "CanonicalIntelligenceRecord": {
+      "allOf": [
+        {"$ref": "#/$defs/TenantScoped"}, {"$ref": "#/$defs/Revision"},
+        {"type": "object", "properties": {
+          "intelligence_record_id": {"$ref": "#/$defs/Id"}, "record_type": {"enum": ["fact", "decision", "policy", "entity", "project", "domain", "architecture", "constraint", "relationship", "summary"]},
+          "state": {"enum": ["active", "superseded", "archived", "retracted"]}, "content": {"$ref": "#/$defs/Json"},
+          "authority_level": {"enum": ["verified", "approved", "provisional"]}, "provenance_ids": {"type": "array", "items": {"$ref": "#/$defs/Id"}, "minItems": 1},
+          "supersedes_record_id": {"$ref": "#/$defs/Id"}, "approved_by": {"$ref": "#/$defs/Attribution"}
+        }, "required": ["intelligence_record_id", "record_type", "state", "content", "authority_level", "provenance_ids", "approved_by"]}
+      ]
+    },
+    "Source": {
+      "allOf": [
+        {"$ref": "#/$defs/TenantScoped"}, {"$ref": "#/$defs/Revision"},
+        {"type": "object", "properties": {
+          "source_id": {"$ref": "#/$defs/Id"}, "source_type": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]{1,63}$"},
+          "canonical_locator": {"type": "string", "minLength": 1, "maxLength": 4096}, "authority_state": {"enum": ["authoritative", "supporting", "historical", "untrusted", "retired"]},
+          "freshness_class": {"enum": ["live", "volatile", "periodic", "static", "unknown"]}, "data_classification": {"enum": ["public", "internal", "confidential", "restricted"]},
+          "retention_policy_id": {"$ref": "#/$defs/Id"}, "last_verified_at": {"$ref": "#/$defs/Timestamp"}
+        }, "required": ["source_id", "source_type", "canonical_locator", "authority_state", "freshness_class", "data_classification"]}
+      ]
+    },
+    "Provenance": {
+      "allOf": [
+        {"$ref": "#/$defs/TenantScoped"}, {"$ref": "#/$defs/Revision"},
+        {"type": "object", "properties": {
+          "provenance_id": {"$ref": "#/$defs/Id"}, "source_id": {"$ref": "#/$defs/Id"},
+          "source_locator": {"type": "string", "minLength": 1, "maxLength": 4096}, "content_fingerprint": {"type": "string", "maxLength": 512},
+          "retrieved_at": {"$ref": "#/$defs/Timestamp"}, "source_observed_at": {"$ref": "#/$defs/Timestamp"},
+          "fragment_reference": {"type": "string", "maxLength": 4096}, "asserted_by": {"$ref": "#/$defs/Attribution"}
+        }, "required": ["provenance_id", "source_id", "source_locator", "retrieved_at", "asserted_by"]}
+      ]
+    },
+    "Policy": {
+      "allOf": [
+        {"$ref": "#/$defs/TenantScoped"}, {"$ref": "#/$defs/Revision"},
+        {"type": "object", "properties": {
+          "policy_id": {"$ref": "#/$defs/Id"}, "policy_type": {"enum": ["authorization", "traffic", "privacy", "retention", "approval", "resource", "extension"]},
+          "state": {"enum": ["draft", "active", "superseded", "retired"]}, "rules": {"$ref": "#/$defs/Json"},
+          "effective_at": {"$ref": "#/$defs/Timestamp"}, "supersedes_policy_id": {"$ref": "#/$defs/Id"}
+        }, "required": ["policy_id", "policy_type", "state", "rules", "effective_at"]}
+      ]
+    },
+    "Extension": {
+      "type": "object", "properties": {"extension_id": {"$ref": "#/$defs/Id"}, "publisher": {"type": "string", "minLength": 1, "maxLength": 255}, "state": {"enum": ["active", "deprecated", "revoked"]}, "manifest": {"$ref": "#/$defs/ExtensionManifest"}},
+      "required": ["extension_id", "publisher", "state", "manifest"]
+    },
+    "ExtensionManifest": {
+      "type": "object", "properties": {
+        "manifest_version": {"const": 1}, "id": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]{2,127}$"}, "name": {"type": "string", "minLength": 1, "maxLength": 160},
+        "publisher": {"type": "string", "minLength": 1, "maxLength": 255}, "version": {"type": "string", "minLength": 1, "maxLength": 64},
+        "sovereign": {"type": "object", "properties": {"compatibility": {"type": "string", "minLength": 1}, "requested_scopes": {"type": "array", "items": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]{2,127}$"}, "uniqueItems": true}, "events": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}}, "required": ["compatibility", "requested_scopes"]},
+        "object_types": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}, "external_endpoints": {"type": "array", "items": {"type": "string", "format": "uri"}},
+        "ui": {"$ref": "#/$defs/Json"}, "privacy": {"type": "object", "properties": {"retention_behavior": {"type": "string"}, "uninstall_behavior": {"type": "string"}}, "required": ["retention_behavior", "uninstall_behavior"]}
+      }, "required": ["manifest_version", "id", "name", "publisher", "version", "sovereign", "privacy"]
+    },
+    "ExtensionGrant": {
+      "allOf": [
+        {"$ref": "#/$defs/TenantScoped"}, {"$ref": "#/$defs/Revision"},
+        {"type": "object", "properties": {
+          "extension_grant_id": {"$ref": "#/$defs/Id"}, "extension_id": {"$ref": "#/$defs/Id"}, "state": {"enum": ["active", "reduced", "revoked", "uninstalled"]},
+          "granted_scopes": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}, "granted_by": {"$ref": "#/$defs/Attribution"},
+          "granted_at": {"$ref": "#/$defs/Timestamp"}, "revoked_at": {"$ref": "#/$defs/Timestamp"}
+        }, "required": ["extension_grant_id", "extension_id", "state", "granted_scopes", "granted_by", "granted_at"]}
+      ]
+    },
+    "AuditEvent": {
+      "allOf": [
+        {"$ref": "#/$defs/TenantScoped"},
+        {"type": "object", "properties": {
+          "audit_event_id": {"$ref": "#/$defs/Id"}, "occurred_at": {"$ref": "#/$defs/Timestamp"}, "event_type": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]{2,127}$"},
+          "subject_type": {"type": "string", "minLength": 1}, "subject_id": {"$ref": "#/$defs/Id"}, "attribution": {"$ref": "#/$defs/Attribution"},
+          "outcome": {"enum": ["success", "denied", "error"]}, "metadata": {"$ref": "#/$defs/Json"}
+        }, "required": ["audit_event_id", "occurred_at", "event_type", "subject_type", "subject_id", "attribution", "outcome"]}
+      ]
+    },
+    "ControlPlaneOrientationPacket": {
+      "allOf": [
+        {"$ref": "#/$defs/TenantScoped"},
+        {"type": "object", "properties": {
+          "orientation_packet_id": {"$ref": "#/$defs/Id"}, "traffic_session_id": {"$ref": "#/$defs/Id"}, "generated_at": {"$ref": "#/$defs/Timestamp"},
+          "revision_hash": {"type": "string", "minLength": 16, "maxLength": 256}, "context_appetite": {"enum": ["lean", "standard", "broad", "deep", "custom"]},
+          "entities": {"type": "array", "items": {"$ref": "#/$defs/Id"}}, "domains": {"type": "array", "items": {"$ref": "#/$defs/Id"}},
+          "authority_map": {"type": "array", "items": {"type": "object", "properties": {"topic": {"type": "string"}, "source_id": {"$ref": "#/$defs/Id"}, "freshness": {"type": "string"}}, "required": ["topic", "source_id"]}},
+          "continuity_pointers": {"type": "array", "items": {"$ref": "#/$defs/Id"}}, "intelligence_pointers": {"type": "array", "items": {"$ref": "#/$defs/Id"}},
+          "traffic": {"type": "array", "items": {"$ref": "#/$defs/ResourceClaim"}}, "permissions": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+          "available_routes": {"type": "array", "items": {"type": "string"}, "minItems": 1}, "retrieval_is_actor_directed": {"const": true}
+        }, "required": ["orientation_packet_id", "traffic_session_id", "generated_at", "revision_hash", "context_appetite", "traffic", "permissions", "available_routes", "retrieval_is_actor_directed"]}
+      ]
+    }
+  }
+}

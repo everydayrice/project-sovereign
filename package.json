@@ -1,0 +1,15 @@
+{
+  "name": "@project-sovereign/core",
+  "version": "0.2.0-alpha.0",
+  "private": true,
+  "description": "Provider-neutral persistent AI intelligence platform — V0.2 product alpha.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test",
+    "test:coverage": "node --test --experimental-test-coverage",
+    "check": "find src -name '*.mjs' -print0 | xargs -0 -n 1 node --check && node -e \"const fs=require('node:fs'); JSON.parse(fs.readFileSync('contracts/v0.2/sovereign-core.schema.json')); JSON.parse(fs.readFileSync('contracts/v0.2/product-alpha.schema.json'));\""
+  }
+}

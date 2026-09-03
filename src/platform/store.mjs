@@ -3,6 +3,7 @@ import { SovereignError } from "./errors.mjs";
 export class InMemorySovereignStore {
   constructor() {
     this.tenants = new Map();
+    this.workspaces = new Map();
     this.principals = new Map();
     this.providers = new Map();
     this.surfaces = new Map();
@@ -20,6 +21,21 @@ export class InMemorySovereignStore {
     this.extensionGrants = new Map();
     this.auditEvents = new Map();
     this.sources = new Map();
+    this.sourceItems = new Map();
+    this.connectorDefinitions = new Map();
+    this.initializationRuns = new Map();
+    this.initializationSourceRuns = new Map();
+    this.canonicalStates = new Map();
+    this.canonicalRecords = new Map();
+    this.canonicalRecordRevisions = new Map();
+    this.canonicalChangeSets = new Map();
+    this.canonicalChangeOperations = new Map();
+    this.canonicalCheckpoints = new Map();
+    this.candidateIntelligence = new Map();
+    this.canonicalAccessEvents = new Map();
+    this.recoverySessions = new Map();
+    this.failureEvents = new Map();
+    this.improvementCandidates = new Map();
   }
 
   put(collection, value) {
@@ -59,7 +75,14 @@ function singular(collection) {
     trafficSessions: "traffic_session", resources: "resource", resourceClaims: "resource_claim",
     trafficCheckpoints: "traffic_checkpoint", taskCapsules: "task_capsule", sessionCapsules: "session_capsule",
     candidateMemories: "candidate_memory", extensions: "extension", extensionInstallations: "extension_installation",
-    extensionGrants: "extension_grant", auditEvents: "audit_event", sources: "source", tenants: "tenant",
-    handoffs: "handoff"
+    extensionGrants: "extension_grant", auditEvents: "audit_event", sources: "source", tenants: "tenant", workspaces: "workspace",
+    handoffs: "handoff", sourceItems: "source_item", connectorDefinitions: "connector_definition",
+    initializationRuns: "initialization_run", initializationSourceRuns: "initialization_source_run",
+    canonicalStates: "canonical_state", canonicalRecords: "canonical_record",
+    canonicalRecordRevisions: "canonical_record_revision", canonicalChangeSets: "canonical_change_set",
+    canonicalChangeOperations: "canonical_change_operation", canonicalCheckpoints: "canonical_checkpoint",
+    candidateIntelligence: "candidate_intelligence", canonicalAccessEvents: "canonical_access_event",
+    recoverySessions: "recovery_session", failureEvents: "failure_event",
+    improvementCandidates: "improvement_candidate"
   })[collection] ?? collection;
 }

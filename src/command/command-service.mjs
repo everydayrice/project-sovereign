@@ -26,6 +26,26 @@ export class CommandService {
     });
   }
 
+  createWorkspace({ tenantId, principalId, slug, displayName, parentWorkspaceId = null, settings = {} }) {
+    this.requireActiveTenant(tenantId);
+    if (principalId) this.requirePrincipal(tenantId, principalId);
+    requireCondition(/^[a-z0-9][a-z0-9-]{1,62}$/.test(slug), "invalid_workspace_slug", "Workspace slug is invalid.");
+    requireCondition(displayName?.trim(), "workspace_name_required", "Workspace display name is required.");
+    requireCondition(!this.store.list("workspaces", (workspace) => workspace.tenant_id === tenantId && workspace.slug === slug).length, "workspace_slug_taken", "Workspace slug already exists.", { status: 409 });
+    if (parentWorkspaceId) this.store.requireTenant("workspaces", parentWorkspaceId, tenantId);
+    const timestamp = this.now();
+    return this.store.put("workspaces", {
+      workspace_id: newId("wsp"), tenant_id: tenantId, parent_workspace_id: parentWorkspaceId, slug,
+      display_name: displayName.trim(), state: "active", settings, created_by_principal_id: principalId ?? null,
+      revision: 1, created_at: timestamp, updated_at: timestamp
+    });
+  }
+
+  listWorkspaces(tenantId) {
+    this.requireActiveTenant(tenantId);
+    return this.store.list("workspaces", (workspace) => workspace.tenant_id === tenantId).sort((left, right) => left.display_name.localeCompare(right.display_name));
+  }
+
   requirePrincipal(tenantId, principalId) {
     const principal = this.store.requireTenant("principals", principalId, tenantId);
     if (principal.state !== "active") throw new SovereignError("principal_inactive", "Principal is not active.", { status: 403 });

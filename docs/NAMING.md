@@ -46,6 +46,7 @@ The following are interfaces/surfaces over the platform, not separate truth syst
 - **Gateway** — machine interface through HTTP/JSON, MCP, SDKs, CLI and adapters.
 - **Console / Command Center** — human-facing application shell and administration UI.
 - **Search / Ask** — intelligence retrieval experiences.
+- **Extension Host** — installation/permission/runtime boundary for first-party and third-party extensions.
 
 ## Primitives are not modules
 
@@ -64,16 +65,32 @@ The following are core object types used by modules:
 - Idea
 - Agent / Model / Tool Endpoint
 
-Object names should not become product modules simply because they receive their own UI.
+Object names should not become product modules simply because they receive their own UI or are consumed by an extension.
 
-## Built-in views/apps are not core modules
+## Core views are intentionally minimal
 
-- **QUEUE** — a Continuity view/application over Task Capsules and checkpoints.
-- **IDEAS** — a Continuity view/application over Idea objects and promotion lifecycle.
-- **SESSIONS** — a Continuity view over Session Capsules.
-- **TASKS** — a Continuity view over Task Capsules.
+Sovereign core may expose basic native inspection/administration views for its primitives, but specialized productivity products are not bundled into the core merely because they use Sovereign data.
 
-These may be modular UI packages, but they do not create separate sources of truth.
+Examples:
+
+- basic Session Capsule inspector — core Continuity administration;
+- basic Task Capsule inspector — core Continuity administration;
+- full visual Queue Tracker — extension/product;
+- full Idea Tracker — extension/product.
+
+## Extensions and plugins
+
+Extensions integrate through Protocol/Gateway/Extension contracts and may have their own repositories, runtimes, brands and product lifecycles.
+
+Examples:
+
+- **RICE Lightning Queue Tracker** — external extension that tracks open/closed tasks, chats and workflows using authorized Continuity/Task Capsule interfaces.
+- **RICE Lightning Ideas** — external idea-tracking extension using authorized Continuity/Idea interfaces.
+- **WORKFORCE** — persistent AI personnel/organizational layer. Separate add-on/product; interoperates with Sovereign but is not required for Sovereign core.
+- **COMPUTE** — optional persistent execution/workspace layer for agents and humans. Not required for V1 core.
+- Future connectors, analytics products, agent runtimes and specialized tools follow the same rule.
+
+An extension may add screens, workflows, automations and derived state, but it must not silently create a competing canonical source of Sovereign Intelligence or bypass Command permissions.
 
 ## Cross-cutting capabilities are not core modules
 
@@ -83,14 +100,6 @@ These may be modular UI packages, but they do not create separate sources of tru
 - **OBSERVABILITY** — health, tracing, usage and integrity diagnostics.
 
 They may have services and screens, but remain cross-cutting capabilities.
-
-## Optional extensions
-
-Extensions integrate through Protocol/Gateway contracts and can have their own repositories, runtimes and product lifecycles.
-
-- **WORKFORCE** — persistent AI personnel/organizational layer. Separate add-on/product; interoperates with Sovereign but is not required for Sovereign core.
-- **COMPUTE** — optional persistent execution/workspace layer for agents and humans. Not required for V1 core.
-- Future connectors, agent runtimes and specialized products follow the same rule.
 
 ## Commercial product name
 

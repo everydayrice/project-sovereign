@@ -33,6 +33,7 @@ COMMAND owns tenant-configurable behavior and control, including:
 - module configuration;
 - source/integration registration;
 - agent/model/tool registration;
+- extension installation and permissions;
 - privacy and retention settings;
 - write/promotion permissions;
 - audit and system controls;
@@ -106,6 +107,8 @@ It owns high-churn resumable objects such as:
 
 Continuity can persist for a long time while still remaining non-canonical. Promotion into Intelligence requires reconciliation through Protocol and tenant Command policy.
 
+Sovereign core provides primitive APIs and basic administrative inspection for Continuity objects. Full productivity experiences such as Queue Tracker and Idea Tracker belong outside the core and install through the extension system.
+
 ## Platform Protocol
 
 Protocol is the compatibility and lifecycle specification, not a fifth module.
@@ -137,7 +140,8 @@ Protocol invariants include:
 - runtime caches/indexes are rebuildable derivatives;
 - a new session/provider should be disposable;
 - tenant isolation is enforced outside model reasoning;
-- consequential writes are attributable and auditable.
+- consequential writes are attributable and auditable;
+- extensions receive only explicitly granted scopes and cannot bypass Command policy.
 
 ## Platform planes
 
@@ -166,17 +170,45 @@ Gateway operations must not create vendor-specific canonical data models.
 
 ### Console
 
-One human-facing platform shell exposes module views:
+One human-facing platform shell exposes only core platform administration and inspection:
 
 - Home
 - Command
 - Intelligence
 - Control Plane
 - Continuity
+- Extensions
 - Integrations
 - Audit/Health
 
-Queue, Ideas, Tasks and Sessions are views/applications backed by Continuity primitives rather than peer systems.
+Specialized products such as Queue Tracker and Idea Tracker may contribute extension views to the shell or run as separate applications, but remain outside Sovereign core.
+
+### Extension Host
+
+The extension host is the permissioned integration boundary for installable products, similar in spirit to browser extensions.
+
+An extension declares:
+
+- identity and publisher;
+- version and compatibility range;
+- requested Sovereign scopes;
+- module/object types it reads or writes;
+- event subscriptions;
+- UI contributions, if any;
+- external endpoints/runtime requirements;
+- data retention/privacy behavior;
+- uninstall/revocation behavior.
+
+Command presents requested permissions to the tenant and enforces the granted scopes server-side.
+
+An extension may be:
+
+- hosted externally and connected by API/webhook/MCP;
+- installed as a UI/plugin package;
+- a separately deployed product with Sovereign credentials;
+- first-party, partner, private or third-party.
+
+Extensions must not become hidden canonical authorities merely because they are installed.
 
 ## Cross-cutting capabilities
 
@@ -205,6 +237,14 @@ Security includes tenant isolation, identity, authentication, authorization, enc
 
 ## Extensions
 
+### RICE Lightning Queue Tracker
+
+The first planned alpha extension is a Queue Tracker supplied by RICE Lightning. It may track open/closed chats, tasks and workflows by consuming authorized Task Capsule, Session Capsule and checkpoint interfaces. It is not part of Sovereign core and does not own canonical intelligence.
+
+### RICE Lightning Ideas
+
+Idea tracking can follow the same model: an external RICE Lightning product using Continuity Idea objects and promotion APIs rather than becoming a Sovereign module.
+
 ### Workforce
 
 Workforce is a separate interoperable product/add-on. It represents durable AI personnel, teams, roles, authority, evaluations and work identity. Sovereign core does not require Workforce.
@@ -220,6 +260,8 @@ RICE becomes tenant `rice` in the alpha deployment.
 The tenant may present COMMAND as **RICE COMMAND** while still using the same underlying Command module and common Protocol.
 
 Existing `everydayrice/rice-command` is treated as a migration/source authority for RICE's current canonical intelligence and continuity history. Sovereign does not silently redefine repository history. V1 migration should import/reconcile RICE records with preserved provenance and retain a rollback/export path.
+
+RICE Lightning is an external product ecosystem from Sovereign's perspective, even when both are controlled by the same owner during alpha. This is deliberate: it tests the extension boundary against a real independent client instead of giving first-party code privileged hidden access.
 
 ## Independence rule
 

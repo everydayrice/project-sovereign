@@ -11,12 +11,13 @@ A user should be able to replace an AI provider tomorrow without losing the inte
 A fresh authorized agent should be able to:
 
 1. understand what it is working on;
-2. retrieve the minimum sufficient trusted context;
-3. know where truth comes from and what is authoritative;
-4. resume unfinished work without reconstructing it from chat history;
-5. preserve material durable changes without turning every conversation into canonical truth;
-6. operate within tenant-defined policy, privacy and permissions;
-7. expose its reasoning inputs and state transitions sufficiently for audit and debugging.
+2. quickly learn where relevant intelligence, continuity and authoritative sources live;
+3. choose its own context appetite and retrieve as much or as little authorized context as the task requires;
+4. know where truth comes from and what is authoritative;
+5. resume unfinished work without reconstructing it from chat history;
+6. preserve material durable changes without turning every conversation into canonical truth;
+7. operate within tenant-defined policy, privacy and permissions;
+8. expose its routing/context inputs and state transitions sufficiently for audit and debugging.
 
 ## Four core modules
 
@@ -35,6 +36,7 @@ COMMAND owns tenant-configurable behavior and control, including:
 - agent/model/tool registration;
 - extension installation and permissions;
 - privacy and retention settings;
+- explicit resource/budget ceilings where the tenant chooses to impose them;
 - write/promotion permissions;
 - audit and system controls;
 - branding/personalization of the tenant's Command instance.
@@ -62,28 +64,41 @@ Raw source documents remain in source systems or protected object storage when p
 
 ### CONTROL PLANE
 
-The runtime traffic director.
+The orientation and traffic-control module.
 
-CONTROL PLANE does not attempt to know everything. It decides what should be used now.
+CONTROL PLANE is intentionally lightweight. Its primary job is to quickly orient an AI model, agent, bot, human or extension to the environment: what domain it is in, where relevant things live, which sources are authoritative, what continuity exists, what is current/volatile, and which paths are available next.
+
+It should behave more like an ATC/routing brief than an automatic context rationer.
 
 Responsibilities include:
 
-- task/scope classification;
-- authority resolution;
-- privacy and permission filtering;
-- freshness/volatility decisions;
-- context compilation;
-- token/context budgets;
-- relevant Intelligence retrieval;
-- relevant Continuity retrieval;
-- source/live-system escalation;
-- agent/model/tool routing;
-- exclusion decisions;
-- context revision and delta delivery;
-- execution/response traces;
-- safe fallback/escalation policy execution.
+- tenant/actor/task/scope orientation;
+- relevant entity/project/domain identification;
+- authority and source map;
+- privacy/permission/policy boundaries;
+- freshness/volatility markers;
+- pointers to relevant Intelligence areas;
+- pointers to relevant Continuity/session/task state;
+- pointers to live systems and extensions;
+- agent/model/tool capability map and routing options;
+- compact orientation/context packet;
+- context revision and route trace;
+- safe fallback/escalation information.
 
-CONTROL PLANE is the ATC layer: it coordinates traffic; it is not the airport, aircraft or passenger database.
+CONTROL PLANE does **not** decide the agent's context appetite in V1.
+
+After orientation, the authorized agent chooses whether to retrieve narrowly, broadly or deeply from Intelligence, Continuity and registered sources. The platform may expose convenience appetite modes or recommendations, but these are agent/user choices rather than hidden automatic throttles.
+
+The only mandatory limits are hard boundaries enforced by Command and platform security, such as:
+
+- tenant isolation;
+- permissions and scopes;
+- privacy/data-class restrictions;
+- source-specific access controls;
+- explicit user/admin resource or spend ceilings;
+- hard technical limits needed to protect service reliability.
+
+CONTROL PLANE may observe context/retrieval behavior and collect telemetry. Later versions may recommend more efficient retrieval based on real outcome data, but V1 must not sacrifice capability by assuming in advance that the smallest context is best.
 
 ### CONTINUITY
 
@@ -117,10 +132,11 @@ The V1 lifecycle is:
 
 ```text
 IDENTIFY TENANT + ACTOR
-→ CLASSIFY TASK/SCOPE
-→ RESOLVE POLICY + AUTHORITY
-→ HYDRATE MINIMUM SUFFICIENT INTELLIGENCE + CONTINUITY
-→ RESOLVE LIVE/SOURCE REQUIREMENTS
+→ ORIENT TASK/SCOPE THROUGH CONTROL PLANE
+→ RESOLVE POLICY + AUTHORITY MAP
+→ RETURN COMPACT TERRAIN/ROUTING BRIEF
+→ AGENT CHOOSES CONTEXT APPETITE
+→ RETRIEVE AUTHORIZED INTELLIGENCE + CONTINUITY + LIVE SOURCES AS NEEDED
 → EXECUTE
 → VERIFY
 → CHECKPOINT CONTINUITY
@@ -141,7 +157,8 @@ Protocol invariants include:
 - a new session/provider should be disposable;
 - tenant isolation is enforced outside model reasoning;
 - consequential writes are attributable and auditable;
-- extensions receive only explicitly granted scopes and cannot bypass Command policy.
+- extensions receive only explicitly granted scopes and cannot bypass Command policy;
+- Control Plane orientation does not silently restrict an authorized agent to a platform-chosen minimum context set.
 
 ## Platform planes
 
@@ -214,16 +231,20 @@ Extensions must not become hidden canonical authorities merely because they are 
 
 ### Efficiency
 
-Efficiency is a cross-cutting capability, primarily implemented in Control Plane and runtime services:
+Efficiency is a cross-cutting capability, primarily implemented as telemetry, caching and optional recommendations rather than hidden context starvation.
 
-- context budgeting;
+V1 may provide:
+
 - deterministic context caching;
-- known-context/delta delivery;
+- known-context/delta delivery when the requesting agent opts in;
 - deduplication;
-- semantic retrieval after scope/authority filtering;
-- model/provider/reasoning routing;
-- latency/retry optimization;
-- telemetry for tokens/context/calls/cost avoided.
+- retrieval telemetry;
+- model/provider/reasoning route recommendations;
+- latency/retry telemetry;
+- tokens/context/calls/cost measurements;
+- suggested appetite/routing improvements based on observed outcomes.
+
+V1 should **observe before it optimizes**. It must not automatically reduce context merely to minimize token count if that can degrade task quality.
 
 It does not own business truth.
 

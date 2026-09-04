@@ -6,69 +6,69 @@ import { R2FileService } from "./files/r2-file-service.mjs";
 import { SovereignError } from "./platform/errors.mjs";
 
 export default {
-  async fetch(request, env) {
-    const url = new URL(request.url);
-    if (url.pathname === "/api/auth" || url.pathname.startsWith("/api/auth/")) {
-      try {
+  async fetch(request, env = {}) {
+    try {
+      const url = new URL(request.url);
+      if (url.pathname === "/api/auth" || url.pathname.startsWith("/api/auth/")) {
         return await proxyNeonAuth(request, { baseUrl: env.NEON_AUTH_BASE_URL });
-      } catch (error) {
-        return runtimeError(error);
       }
-    }
 
-    const persistence = env.DATABASE_URL ? createNeonPersistence(env.DATABASE_URL) : null;
-    const authenticate = createNeonSessionAuthenticator({ baseUrl: env.NEON_AUTH_BASE_URL });
-    const files = new R2FileService({ bucket: env.SOVEREIGN_FILES });
-    const gateway = createHttpGateway({
-      platform: createSovereignPlatform(),
-      authenticate,
-      files,
-      health: async () => productionHealth({ env, persistence }),
-      prepareRequest: async ({ auth }) => {
-        if (!persistence) throw new SovereignError("database_not_configured", "DATABASE_URL is required for the production Sovereign runtime.", { status: 503 });
-        const binding = await persistence.resolveAuthBinding(auth.authSubject);
-        if (!binding) {
+      const persistence = env.DATABASE_URL ? createNeonPersistence(env.DATABASE_URL) : null;
+      const authenticate = createNeonSessionAuthenticator({ baseUrl: env.NEON_AUTH_BASE_URL });
+      const files = new R2FileService({ bucket: env.SOVEREIGN_FILES });
+      const gateway = createHttpGateway({
+        platform: createSovereignPlatform(),
+        authenticate,
+        files,
+        health: async () => productionHealth({ env, persistence }),
+        prepareRequest: async ({ auth }) => {
+          if (!persistence) throw new SovereignError("database_not_configured", "DATABASE_URL is required for the production Sovereign runtime.", { status: 503 });
+          const binding = await persistence.resolveAuthBinding(auth.authSubject);
+          if (!binding) {
+            return {
+              platform: createSovereignPlatform(),
+              auth: { ...auth, onboarding: true },
+              version: null,
+              persistence
+            };
+          }
+          const loaded = await persistence.loadTenant(binding.tenant_id);
           return {
-            platform: createSovereignPlatform(),
-            auth: { ...auth, onboarding: true },
-            version: null,
+            platform: createSovereignPlatform({ store: loaded.store }),
+            auth: {
+              ...auth,
+              tenantId: binding.tenant_id,
+              principalId: binding.principal_id,
+              onboarding: false
+            },
+            version: loaded.version,
             persistence
           };
-        }
-        const loaded = await persistence.loadTenant(binding.tenant_id);
-        return {
-          platform: createSovereignPlatform({ store: loaded.store }),
-          auth: {
-            ...auth,
-            tenantId: binding.tenant_id,
-            principalId: binding.principal_id,
-            onboarding: false
-          },
-          version: loaded.version,
-          persistence
-        };
-      },
-      finalizeRequest: async ({ platform, auth, requestContext }) => {
-        if (!requestContext?.persistence) return;
-        if (auth.bootstrap) {
-          await requestContext.persistence.bootstrapTenant({
-            authSubjectReference: auth.authSubject,
-            tenant: auth.bootstrap.tenant,
-            principal: auth.bootstrap.principal,
-            workspace: auth.bootstrap.workspace,
-            store: platform.store
+        },
+        finalizeRequest: async ({ platform, auth, requestContext }) => {
+          if (!requestContext?.persistence) return;
+          if (auth.bootstrap) {
+            await requestContext.persistence.bootstrapTenant({
+              authSubjectReference: auth.authSubject,
+              tenant: auth.bootstrap.tenant,
+              principal: auth.bootstrap.principal,
+              workspace: auth.bootstrap.workspace,
+              store: platform.store
+            });
+            return;
+          }
+          if (!auth.tenantId || requestContext.version === null || requestContext.version === undefined) return;
+          await requestContext.persistence.saveTenant({
+            tenantId: auth.tenantId,
+            store: platform.store,
+            expectedVersion: requestContext.version
           });
-          return;
         }
-        if (!auth.tenantId || requestContext.version === null || requestContext.version === undefined) return;
-        await requestContext.persistence.saveTenant({
-          tenantId: auth.tenantId,
-          store: platform.store,
-          expectedVersion: requestContext.version
-        });
-      }
-    });
-    return gateway.fetch(request);
+      });
+      return gateway.fetch(request);
+    } catch (error) {
+      return runtimeError(error);
+    }
   }
 };
 

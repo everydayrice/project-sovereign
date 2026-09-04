@@ -6,6 +6,7 @@ import { R2FileService } from "./files/r2-file-service.mjs";
 import { SovereignError } from "./platform/errors.mjs";
 import { analyzeStructuredText } from "./analysis/structured-text-analyzer.mjs";
 import { sourceInitializePageHtml } from "./console/source-initialize-page.mjs";
+import { approveCandidateChangeSet, proposeCandidateForCanon, rejectCandidate } from "./intelligence/candidate-review.mjs";
 
 export default {
   async fetch(request, env = {}) {
@@ -29,6 +30,36 @@ export default {
           authenticate,
           persistence,
           files
+        });
+      }
+
+      const candidateProposeMatch = /^\/v1\/intelligence\/candidates\/([^/]+)\/propose-canonical$/.exec(url.pathname);
+      if (request.method === "POST" && candidateProposeMatch) {
+        return await handleCandidateProposal({
+          request,
+          candidateId: decodeURIComponent(candidateProposeMatch[1]),
+          authenticate,
+          persistence
+        });
+      }
+
+      const candidateRejectMatch = /^\/v1\/intelligence\/candidates\/([^/]+)\/reject$/.exec(url.pathname);
+      if (request.method === "POST" && candidateRejectMatch) {
+        return await handleCandidateRejection({
+          request,
+          candidateId: decodeURIComponent(candidateRejectMatch[1]),
+          authenticate,
+          persistence
+        });
+      }
+
+      const candidateApprovalMatch = /^\/v1\/intelligence\/canonical\/change-sets\/([^/]+)\/approve-candidate$/.exec(url.pathname);
+      if (request.method === "POST" && candidateApprovalMatch) {
+        return await handleCandidateApproval({
+          request,
+          changeSetId: decodeURIComponent(candidateApprovalMatch[1]),
+          authenticate,
+          persistence
         });
       }
 
@@ -101,6 +132,42 @@ async function initializeTextSource({ request, sourceId, authenticate, persisten
   }, { status: 201 });
 }
 
+async function handleCandidateProposal({ request, candidateId, authenticate, persistence }) {
+  const { binding, loaded, platform } = await loadBoundPlatform({ request, authenticate, persistence });
+  const result = proposeCandidateForCanon({
+    platform,
+    tenantId: binding.tenant_id,
+    principalId: binding.principal_id,
+    candidateId
+  });
+  await persistence.saveTenant({ tenantId: binding.tenant_id, store: platform.store, expectedVersion: loaded.version });
+  return Response.json(result, { status: 201 });
+}
+
+async function handleCandidateRejection({ request, candidateId, authenticate, persistence }) {
+  const { binding, loaded, platform } = await loadBoundPlatform({ request, authenticate, persistence });
+  let reason = "Rejected during Candidate Intelligence review.";
+  try {
+    const body = await request.json();
+    if (typeof body?.reason === "string" && body.reason.trim()) reason = body.reason.trim();
+  } catch {}
+  const candidate = rejectCandidate({ platform, tenantId: binding.tenant_id, candidateId, reason });
+  await persistence.saveTenant({ tenantId: binding.tenant_id, store: platform.store, expectedVersion: loaded.version });
+  return Response.json({ candidate });
+}
+
+async function handleCandidateApproval({ request, changeSetId, authenticate, persistence }) {
+  const { binding, loaded, platform } = await loadBoundPlatform({ request, authenticate, persistence });
+  const result = approveCandidateChangeSet({
+    platform,
+    tenantId: binding.tenant_id,
+    principalId: binding.principal_id,
+    changeSetId
+  });
+  await persistence.saveTenant({ tenantId: binding.tenant_id, store: platform.store, expectedVersion: loaded.version });
+  return Response.json(result);
+}
+
 async function loadBoundPlatform({ request, authenticate, persistence }) {
   if (!persistence) throw new SovereignError("database_not_configured", "DATABASE_URL is required for the production Sovereign runtime.", { status: 503 });
   const auth = await authenticate(request);
@@ -133,15 +200,77 @@ async function injectCandidateIntelligence({ request, response, authenticate, pe
   const contentType = response.headers.get("content-type") || "";
   if (!contentType.includes("text/html")) return response;
   const { binding, platform } = await loadBoundPlatform({ request, authenticate, persistence });
-  const candidates = platform.store.list("candidateIntelligence", (item) => item.tenant_id === binding.tenant_id)
+  const tenantId = binding.tenant_id;
+  const candidates = platform.store.list("candidateIntelligence", (item) => item.tenant_id === tenantId)
     .sort((left, right) => right.created_at.localeCompare(left.created_at));
+  const pendingCandidateChanges = platform.store.list("canonicalChangeSets", (item) =>
+    item.tenant_id === tenantId && ["pending_approval", "ready"].includes(item.state) && candidateIdFromProvenance(item.provenance)
+  ).sort((left, right) => right.created_at.localeCompare(left.created_at));
+
   const items = candidates.length
-    ? candidates.map((candidate) => `<li><strong>${escapeHtml(candidate.record_type)}</strong><span>${escapeHtml(candidate.payload?.statement ?? JSON.stringify(candidate.payload))}</span><small>${escapeHtml(candidate.state)} · non-canonical</small></li>`).join("")
+    ? candidates.map(candidateReviewItem).join("")
     : '<li class="empty">No Candidate Intelligence yet.</li>';
-  const panel = `<section class="panel"><div class="panel-header"><h2>Candidate Intelligence</h2><span>Extracted · review before canon</span></div><ul class="candidate-list" style="list-style:none;padding:0;margin:0;display:grid;gap:10px">${items}</ul></section>`;
+  const pending = pendingCandidateChanges.length
+    ? `<div style="display:grid;gap:10px">${pendingCandidateChanges.map((change) => {
+        const candidateId = candidateIdFromProvenance(change.provenance);
+        const candidate = candidates.find((item) => item.candidate_intelligence_id === candidateId);
+        const statement = candidate?.payload?.statement ?? change.title;
+        return `<article style="border:1px solid #e5e7eb;border-radius:10px;padding:14px;display:grid;gap:8px"><strong>${escapeHtml(statement)}</strong><small>${escapeHtml(change.state)} · explicit approval required</small><button data-approve-change-set="${escapeHtml(change.canonical_change_set_id)}" style="justify-self:start;border:0;border-radius:8px;background:#111419;color:#fff;padding:9px 12px;font:600 13px/1 system-ui;cursor:pointer">Approve & apply</button></article>`;
+      }).join("")}</div>`
+    : '<p class="empty">No candidate-backed Canonical Change Sets are waiting for approval.</p>';
+
+  const panel = `<section class="panel"><div class="panel-header"><h2>Candidate Intelligence</h2><span>Extracted · review before canon</span></div><ul class="candidate-list" style="list-style:none;padding:0;margin:0;display:grid;gap:10px">${items}</ul><p id="candidate-review-message" style="min-height:20px;color:#68707d"></p></section><section class="panel"><div class="panel-header"><h2>Candidate canonical approvals</h2><span>Second explicit step</span></div>${pending}</section>${candidateReviewScript()}`;
   const text = await response.text();
   const updated = text.replace("</main></div>", `${panel}</main></div>`);
   return new Response(updated, { status: response.status, statusText: response.statusText, headers: response.headers });
+}
+
+function candidateReviewItem(candidate) {
+  const statement = candidate.payload?.statement ?? JSON.stringify(candidate.payload);
+  const meta = `${candidate.state} · ${candidate.state === "accepted" ? `canonical revision #${candidate.accepted_canonical_revision ?? "?"}` : "non-canonical"}`;
+  let actions = "";
+  if (candidate.state === "proposed") {
+    actions = `<div style="display:flex;gap:8px;flex-wrap:wrap"><button data-propose-candidate="${escapeHtml(candidate.candidate_intelligence_id)}" style="border:0;border-radius:8px;background:#111419;color:#fff;padding:9px 12px;font:600 13px/1 system-ui;cursor:pointer">Propose for canon</button><button data-reject-candidate="${escapeHtml(candidate.candidate_intelligence_id)}" style="border:1px solid #d7dbe2;border-radius:8px;background:#fff;color:#111419;padding:9px 12px;font:600 13px/1 system-ui;cursor:pointer">Reject</button></div>`;
+  }
+  return `<li style="border:1px solid #e5e7eb;border-radius:10px;padding:14px;display:grid;gap:7px"><strong>${escapeHtml(candidate.record_type)}</strong><span>${escapeHtml(statement)}</span><small>${escapeHtml(meta)}</small>${actions}</li>`;
+}
+
+function candidateReviewScript() {
+  return `<script>
+    const reviewMessage = document.getElementById('candidate-review-message');
+    async function reviewPost(path, body) {
+      reviewMessage.textContent = 'Saving review action…';
+      const response = await fetch(path, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: body ? { 'content-type': 'application/json' } : undefined,
+        body: body ? JSON.stringify(body) : undefined
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.message || 'Review action failed.');
+      window.location.reload();
+    }
+    document.querySelectorAll('[data-propose-candidate]').forEach((button) => button.addEventListener('click', async () => {
+      button.disabled = true;
+      try { await reviewPost('/v1/intelligence/candidates/' + encodeURIComponent(button.dataset.proposeCandidate) + '/propose-canonical'); }
+      catch (error) { reviewMessage.textContent = error.message || 'Review action failed.'; button.disabled = false; }
+    }));
+    document.querySelectorAll('[data-reject-candidate]').forEach((button) => button.addEventListener('click', async () => {
+      button.disabled = true;
+      try { await reviewPost('/v1/intelligence/candidates/' + encodeURIComponent(button.dataset.rejectCandidate) + '/reject', { reason: 'Rejected by owner in Sovereign Console.' }); }
+      catch (error) { reviewMessage.textContent = error.message || 'Review action failed.'; button.disabled = false; }
+    }));
+    document.querySelectorAll('[data-approve-change-set]').forEach((button) => button.addEventListener('click', async () => {
+      button.disabled = true;
+      try { await reviewPost('/v1/intelligence/canonical/change-sets/' + encodeURIComponent(button.dataset.approveChangeSet) + '/approve-candidate'); }
+      catch (error) { reviewMessage.textContent = error.message || 'Approval failed.'; button.disabled = false; }
+    }));
+  </script>`;
+}
+
+function candidateIdFromProvenance(provenance) {
+  if (!Array.isArray(provenance)) return null;
+  return provenance.find((item) => item && typeof item === "object" && item.candidate_intelligence_id)?.candidate_intelligence_id ?? null;
 }
 
 function html(content) {

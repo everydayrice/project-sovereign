@@ -4,7 +4,10 @@ import { createNeonPersistence } from "./platform/neon-persistence.mjs";
 import { createNeonSessionAuthenticator, proxyNeonAuth } from "./auth/neon-session-auth.mjs";
 import { R2FileService } from "./files/r2-file-service.mjs";
 import { authPageHtml, onboardingPageHtml } from "./console/auth-pages.mjs";
+import { sourceUploadPageHtml } from "./console/source-upload-page.mjs";
 import { SovereignError } from "./platform/errors.mjs";
+
+const MAX_BROWSER_UPLOAD_BYTES = 25 * 1024 * 1024;
 
 export default {
   async fetch(request, env = {}) {
@@ -31,6 +34,16 @@ export default {
         const binding = await persistence.resolveAuthBinding(auth.authSubject);
         if (binding) return Response.redirect(new URL("/console", url).toString(), 302);
         return html(onboardingPageHtml({ user: auth.user }));
+      }
+
+      if (request.method === "GET" && url.pathname === "/console/sources/upload") {
+        await requireBoundUser({ request, authenticate, persistence });
+        files.assertConfigured();
+        return html(sourceUploadPageHtml());
+      }
+
+      if (request.method === "POST" && url.pathname === "/v1/sources/upload-file") {
+        return await handleBrowserUpload({ request, authenticate, persistence, files });
       }
 
       const gateway = createHttpGateway({
@@ -83,12 +96,76 @@ export default {
           });
         }
       });
-      return gateway.fetch(request);
+      const response = await gateway.fetch(request);
+      if (request.method === "GET" && url.pathname === "/console/sources" && response.ok) {
+        return injectSourceUploadAction(response);
+      }
+      return response;
     } catch (error) {
       return runtimeError(error);
     }
   }
 };
+
+async function requireBoundUser({ request, authenticate, persistence }) {
+  if (!persistence) throw new SovereignError("database_not_configured", "DATABASE_URL is required for the production Sovereign runtime.", { status: 503 });
+  const auth = await authenticate(request);
+  const binding = await persistence.resolveAuthBinding(auth.authSubject);
+  if (!binding) throw new SovereignError("onboarding_required", "Create your Sovereign tenant before uploading sources.", { status: 409 });
+  return { auth, binding };
+}
+
+async function handleBrowserUpload({ request, authenticate, persistence, files }) {
+  files.assertConfigured();
+  const { binding } = await requireBoundUser({ request, authenticate, persistence });
+  const loaded = await persistence.loadTenant(binding.tenant_id);
+  const platform = createSovereignPlatform({ store: loaded.store });
+  const form = await request.formData();
+  const file = form.get("file");
+  if (!file || typeof file.stream !== "function" || typeof file.name !== "string") {
+    throw new SovereignError("file_required", "Choose a file to upload.", { status: 400 });
+  }
+  if (file.size > MAX_BROWSER_UPLOAD_BYTES) {
+    throw new SovereignError("file_too_large", "Browser uploads are currently limited to 25 MB per file.", { status: 413 });
+  }
+  const classification = String(form.get("data_classification") || "internal");
+  const source = platform.sources.createManagedUpload({
+    tenantId: binding.tenant_id,
+    principalId: binding.principal_id,
+    fileName: file.name,
+    mimeType: file.type || "application/octet-stream",
+    sizeBytes: file.size,
+    classification
+  });
+  const sourceItem = platform.store.list("sourceItems", (item) => item.tenant_id === binding.tenant_id && item.source_id === source.source_id)[0];
+  if (!sourceItem) throw new SovereignError("source_item_not_created", "Sovereign could not register the uploaded file.", { status: 500 });
+  const object = await files.put({
+    tenantId: binding.tenant_id,
+    sourceId: source.source_id,
+    sourceItemId: sourceItem.source_item_id,
+    body: file.stream(),
+    contentType: file.type || "application/octet-stream",
+    contentLength: file.size
+  });
+  const savedItem = platform.sources.attachStoredObject({
+    tenantId: binding.tenant_id,
+    sourceId: source.source_id,
+    sourceItemId: sourceItem.source_item_id,
+    objectKey: object.object_key,
+    objectVersion: object.version
+  });
+  await persistence.saveTenant({ tenantId: binding.tenant_id, store: platform.store, expectedVersion: loaded.version });
+  return Response.json({ source, source_item: savedItem, object }, { status: 201 });
+}
+
+async function injectSourceUploadAction(response) {
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.includes("text/html")) return response;
+  const text = await response.text();
+  const action = '<a href="/console/sources/upload" style="display:inline-flex;align-items:center;justify-content:center;margin-left:14px;border-radius:8px;background:#111419;color:#fff;padding:9px 13px;font:600 13px/1 system-ui;text-decoration:none">Upload file</a>';
+  const updated = text.replace("</header>", `${action}</header>`);
+  return new Response(updated, { status: response.status, statusText: response.statusText, headers: response.headers });
+}
 
 async function productionHealth({ env, persistence }) {
   const configured = {

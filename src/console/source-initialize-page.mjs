@@ -16,7 +16,7 @@ export function sourceInitializePageHtml({ sources = [] } = {}) {
         });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(payload.message || 'Initialization failed.');
-        message.textContent = `Created ${payload.candidate_intelligence?.length ?? 0} candidate intelligence records.`;
+        message.textContent = 'Created ' + (payload.candidate_intelligence?.length ?? 0) + ' candidate intelligence records.';
         setTimeout(() => window.location.assign('/console/intelligence'), 650);
       } catch (error) {
         message.textContent = error.message || 'Initialization failed.';

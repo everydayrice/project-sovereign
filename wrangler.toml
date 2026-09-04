@@ -2,11 +2,14 @@ name = "project-sovereign"
 main = "src/worker.mjs"
 compatibility_date = "2026-09-03"
 
-# Production bindings intentionally remain unbound until the dedicated Project
-# Sovereign Neon, R2, and Neon Auth resources are verified. Do not point these
-# names at RICE Lightning or RICE Command infrastructure.
+[[r2_buckets]]
+binding = "SOVEREIGN_FILES"
+bucket_name = "project-sovereign-files"
+
+# Production database/auth runtime bindings are intentionally incomplete until
+# the dedicated Neon persistence adapter and Neon Auth JWKS verifier are wired.
+# Do not point these names at RICE Lightning or RICE Command infrastructure.
 #
-# Required before deployment:
+# Still required before production activation:
 # - HYPERDRIVE or DATABASE_URL binding for the dedicated PROJECT SOVEREIGN Neon project
-# - SOVEREIGN_FILES binding for the dedicated Project Sovereign R2 bucket
-# - Neon Auth issuer/JWKS configuration
+# - Neon Auth issuer/JWKS configuration consumed by the production authenticator

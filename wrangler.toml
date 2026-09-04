@@ -1,6 +1,10 @@
 name = "project-sovereign"
 main = "src/worker.mjs"
 compatibility_date = "2026-09-03"
+keep_vars = true
+
+[secrets]
+required = ["DATABASE_URL"]
 
 [vars]
 NEON_AUTH_BASE_URL = "https://ep-purple-glitter-ay6mb14n.neonauth.c-5.us-east-2.aws.neon.tech/neondb/auth"

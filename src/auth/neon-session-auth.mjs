@@ -1,10 +1,10 @@
 import { SovereignError } from "../platform/errors.mjs";
 
 export function createNeonSessionAuthenticator({ baseUrl, fetchImpl = fetch }) {
-  if (!baseUrl) throw new SovereignError("auth_not_configured", "NEON_AUTH_BASE_URL is required.", { status: 503 });
-  const normalizedBaseUrl = baseUrl.replace(/\/$/, "");
+  const normalizedBaseUrl = baseUrl?.replace(/\/$/, "") ?? null;
 
   return async function authenticate(request) {
+    if (!normalizedBaseUrl) throw new SovereignError("auth_not_configured", "NEON_AUTH_BASE_URL is required.", { status: 503 });
     const cookie = request.headers.get("cookie");
     if (!cookie) throw new SovereignError("unauthorized", "Sign in to Project Sovereign.", { status: 401 });
 

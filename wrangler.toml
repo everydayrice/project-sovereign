@@ -1,5 +1,5 @@
 name = "project-sovereign"
-main = "src/worker.mjs"
+main = "src/worker-entry.mjs"
 compatibility_date = "2026-09-03"
 keep_vars = true
 

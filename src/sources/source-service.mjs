@@ -82,6 +82,31 @@ export class SourceService {
     return { source: updated, items: savedItems };
   }
 
+  getSourceItem(tenantId, sourceItemId) {
+    return this.store.requireTenant("sourceItems", sourceItemId, tenantId);
+  }
+
+  attachStoredObject({ tenantId, sourceId, sourceItemId, objectKey, objectVersion = null }) {
+    const item = this.store.requireTenant("sourceItems", sourceItemId, tenantId);
+    if (item.source_id !== sourceId) throw new SovereignError("source_item_mismatch", "Source item does not belong to this source.", { status: 409 });
+    this.store.requireTenant("sources", sourceId, tenantId);
+    const timestamp = this.now();
+    const saved = this.store.update("sourceItems", sourceItemId, (current) => ({
+      ...current,
+      storage_state: "stored",
+      r2_object_key: objectKey,
+      object_version: objectVersion,
+      updated_at: timestamp
+    }));
+    this.store.update("sources", sourceId, (current) => ({
+      ...current,
+      metadata: { ...current.metadata, storage_state: "stored" },
+      revision: current.revision + 1,
+      updated_at: timestamp
+    }));
+    return saved;
+  }
+
   updateProcessing({ tenantId, sourceId, processingState, currentness, delta = {} }) {
     requireKnownSourceState(processingState, SOURCE_PROCESSING_STATES, "Source processing state");
     requireKnownSourceState(currentness, SOURCE_CURRENTNESS, "Source currentness");

@@ -25,10 +25,20 @@ test("Gateway uses verified tenant/principal context and serves the basic traffi
   assert.match(await board.text(), /Control Plane traffic board/);
 });
 
-test("the deployable Worker fails closed before Neon Auth is configured", async () => {
+test("the deployable Worker fails closed before production bindings are configured", async () => {
   const protectedResponse = await worker.fetch(new Request("https://sovereign.test/v1/control-plane/traffic"));
   assert.equal(protectedResponse.status, 503);
   const body = await protectedResponse.json();
   assert.equal(body.code, "auth_not_configured");
-  assert.equal((await worker.fetch(new Request("https://sovereign.test/health"))).status, 200);
+
+  const healthResponse = await worker.fetch(new Request("https://sovereign.test/health"));
+  assert.equal(healthResponse.status, 503);
+  const health = await healthResponse.json();
+  assert.equal(health.status, "degraded");
+  assert.equal(health.authentication, "not_configured");
+  assert.equal(health.persistence, "not_configured");
+  assert.equal(health.storage, "not_configured");
+
+  const publicResponse = await worker.fetch(new Request("https://sovereign.test/"));
+  assert.equal(publicResponse.status, 200);
 });

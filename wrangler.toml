@@ -2,14 +2,14 @@ name = "project-sovereign"
 main = "src/worker.mjs"
 compatibility_date = "2026-09-03"
 
+[vars]
+NEON_AUTH_BASE_URL = "https://ep-purple-glitter-ay6mb14n.neonauth.c-5.us-east-2.aws.neon.tech/neondb/auth"
+NEON_AUTH_JWKS_URL = "https://ep-purple-glitter-ay6mb14n.neonauth.c-5.us-east-2.aws.neon.tech/neondb/auth/.well-known/jwks.json"
+
 [[r2_buckets]]
 binding = "SOVEREIGN_FILES"
 bucket_name = "project-sovereign-files"
 
-# Production database/auth runtime bindings are intentionally incomplete until
-# the dedicated Neon persistence adapter and Neon Auth JWKS verifier are wired.
-# Do not point these names at RICE Lightning or RICE Command infrastructure.
-#
-# Still required before production activation:
-# - HYPERDRIVE or DATABASE_URL binding for the dedicated PROJECT SOVEREIGN Neon project
-# - Neon Auth issuer/JWKS configuration consumed by the production authenticator
+# DATABASE_URL is intentionally not committed. Configure it as a Cloudflare
+# Worker secret for the dedicated PROJECT SOVEREIGN Neon production branch.
+# Never point this Worker at RICE Lightning or legacy RICE Command storage.

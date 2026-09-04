@@ -9,8 +9,7 @@ import { InitializationService } from "../initialization/initialization-service.
 import { ImprovementService } from "../improvement/improvement-service.mjs";
 import { RecoveryService } from "../recovery/recovery-service.mjs";
 
-export function createSovereignPlatform({ clock = () => new Date(), trafficPolicy } = {}) {
-  const store = new InMemorySovereignStore();
+export function createSovereignPlatform({ clock = () => new Date(), trafficPolicy, store = new InMemorySovereignStore() } = {}) {
   const command = new CommandService({ store, clock });
   const continuity = new ContinuityService({ store, clock });
   const sources = new SourceService({ store, clock });

@@ -7,10 +7,11 @@ export function createNeonSessionAuthenticator({ baseUrl, fetchImpl = fetch }) {
     if (!normalizedBaseUrl) throw new SovereignError("auth_not_configured", "NEON_AUTH_BASE_URL is required.", { status: 503 });
     const cookie = request.headers.get("cookie");
     if (!cookie) throw new SovereignError("unauthorized", "Sign in to Project Sovereign.", { status: 401 });
+    const origin = new URL(request.url).origin;
 
     const response = await fetchImpl(`${normalizedBaseUrl}/get-session`, {
       method: "GET",
-      headers: { cookie, accept: "application/json" }
+      headers: { cookie, accept: "application/json", origin }
     });
     if (!response.ok) throw new SovereignError("unauthorized", "Sovereign authentication session is invalid or expired.", { status: 401 });
 

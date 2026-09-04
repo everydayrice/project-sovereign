@@ -3,12 +3,20 @@ import { createSovereignPlatform } from "./platform/sovereign-platform.mjs";
 import { createNeonPersistence } from "./platform/neon-persistence.mjs";
 import { createNeonSessionAuthenticator, proxyNeonAuth } from "./auth/neon-session-auth.mjs";
 import { R2FileService } from "./files/r2-file-service.mjs";
+import { authPageHtml, onboardingPageHtml } from "./console/auth-pages.mjs";
 import { SovereignError } from "./platform/errors.mjs";
 
 export default {
   async fetch(request, env = {}) {
     try {
       const url = new URL(request.url);
+
+      if (request.method === "GET" && url.pathname === "/login") {
+        return html(authPageHtml({ mode: "login" }));
+      }
+      if (request.method === "GET" && url.pathname === "/signup") {
+        return html(authPageHtml({ mode: "signup" }));
+      }
       if (url.pathname === "/api/auth" || url.pathname.startsWith("/api/auth/")) {
         return await proxyNeonAuth(request, { baseUrl: env.NEON_AUTH_BASE_URL });
       }
@@ -16,6 +24,15 @@ export default {
       const persistence = env.DATABASE_URL ? createNeonPersistence(env.DATABASE_URL) : null;
       const authenticate = createNeonSessionAuthenticator({ baseUrl: env.NEON_AUTH_BASE_URL });
       const files = new R2FileService({ bucket: env.SOVEREIGN_FILES });
+
+      if (request.method === "GET" && url.pathname === "/onboarding") {
+        if (!persistence) throw new SovereignError("database_not_configured", "DATABASE_URL is required for the production Sovereign runtime.", { status: 503 });
+        const auth = await authenticate(request);
+        const binding = await persistence.resolveAuthBinding(auth.authSubject);
+        if (binding) return Response.redirect(new URL("/console", url).toString(), 302);
+        return html(onboardingPageHtml({ user: auth.user }));
+      }
+
       const gateway = createHttpGateway({
         platform: createSovereignPlatform(),
         authenticate,
@@ -92,6 +109,10 @@ async function productionHealth({ env, persistence }) {
     storage: configured.storage ? "r2" : "not_configured",
     canonical_storage_model: "runtime_bridge_pending_normalized_repository_cutover"
   };
+}
+
+function html(content) {
+  return new Response(content, { headers: { "content-type": "text/html; charset=utf-8" } });
 }
 
 function runtimeError(error) {

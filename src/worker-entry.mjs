@@ -16,6 +16,15 @@ export default {
       const authenticate = createNeonSessionAuthenticator({ baseUrl: env.NEON_AUTH_BASE_URL });
       const files = new R2FileService({ bucket: env.SOVEREIGN_FILES });
 
+      // Normal file ingestion is one action: upload, store, then automatically
+      // process supported content. Users do not need to initialize or review
+      // every extracted statement just to make a file available to Sovereign.
+      if (request.method === "POST" && url.pathname === "/v1/sources/upload-file") {
+        return await handleUploadWithAutomaticProcessing({ request, env, authenticate, persistence, files });
+      }
+
+      // Keep the explicit initialize endpoint available as an advanced/recovery
+      // operation, but it is intentionally not linked from the normal Sources UI.
       if (request.method === "GET" && url.pathname === "/console/sources/initialize") {
         const { binding, platform } = await loadBoundPlatform({ request, authenticate, persistence });
         files.assertConfigured();
@@ -33,6 +42,8 @@ export default {
         });
       }
 
+      // Canonical review APIs remain available for deliberate/advanced use, but
+      // Candidate Intelligence is no longer presented as a mandatory upload step.
       const candidateProposeMatch = /^\/v1\/intelligence\/candidates\/([^/]+)\/propose-canonical$/.exec(url.pathname);
       if (request.method === "POST" && candidateProposeMatch) {
         return await handleCandidateProposal({
@@ -63,19 +74,68 @@ export default {
         });
       }
 
-      const response = await baseWorker.fetch(request, env);
-      if (request.method === "GET" && url.pathname === "/console/sources" && response.ok) {
-        return injectInitializeAction(response);
-      }
-      if (request.method === "GET" && url.pathname === "/console/intelligence" && response.ok) {
-        return injectCandidateIntelligence({ request, response, authenticate, persistence });
-      }
-      return response;
+      return baseWorker.fetch(request, env);
     } catch (error) {
       return runtimeError(error);
     }
   }
 };
+
+async function handleUploadWithAutomaticProcessing({ request, env, authenticate, persistence, files }) {
+  // The base Worker owns multipart parsing, source registration, R2 storage and
+  // the first durable save. We build automatic processing on top of that receipt.
+  const uploadResponse = await baseWorker.fetch(request, env);
+  if (!uploadResponse.ok) return uploadResponse;
+
+  const upload = await uploadResponse.json();
+  const sourceId = upload?.source?.source_id;
+  let processing = {
+    state: "stored",
+    automatic: true,
+    analyzed: false,
+    canonicalized: false
+  };
+
+  if (sourceId) {
+    processing = await tryAutomaticProcessing({
+      request,
+      sourceId,
+      authenticate,
+      persistence,
+      files
+    });
+  }
+
+  return Response.json({ ...upload, processing }, { status: uploadResponse.status });
+}
+
+async function tryAutomaticProcessing({ request, sourceId, authenticate, persistence, files }) {
+  try {
+    const response = await initializeTextSource({ request, sourceId, authenticate, persistence, files });
+    const payload = await response.json();
+    return {
+      state: "analyzed",
+      automatic: true,
+      analyzed: true,
+      candidate_count: payload.candidate_intelligence?.length ?? 0,
+      canonicalized: false
+    };
+  } catch (error) {
+    // A file upload still succeeds if the current alpha analyzer does not support
+    // that format or cannot extract structured signals. The source remains stored
+    // and inventoried instead of forcing the user into a manual review workflow.
+    if (error instanceof SovereignError && ["unsupported_initialization_format", "no_candidate_intelligence"].includes(error.code)) {
+      return {
+        state: "stored",
+        automatic: true,
+        analyzed: false,
+        canonicalized: false,
+        processing_note: error.code
+      };
+    }
+    throw error;
+  }
+}
 
 async function initializeTextSource({ request, sourceId, authenticate, persistence, files }) {
   files.assertConfigured();
@@ -172,7 +232,7 @@ async function loadBoundPlatform({ request, authenticate, persistence }) {
   if (!persistence) throw new SovereignError("database_not_configured", "DATABASE_URL is required for the production Sovereign runtime.", { status: 503 });
   const auth = await authenticate(request);
   const binding = await persistence.resolveAuthBinding(auth.authSubject);
-  if (!binding) throw new SovereignError("onboarding_required", "Create your Sovereign tenant before initializing sources.", { status: 409 });
+  if (!binding) throw new SovereignError("onboarding_required", "Create your Sovereign tenant before using managed sources.", { status: 409 });
   const loaded = await persistence.loadTenant(binding.tenant_id);
   return { auth, binding, loaded, platform: createSovereignPlatform({ store: loaded.store }) };
 }
@@ -187,98 +247,8 @@ function assertSupportedTextSource(item) {
   }
 }
 
-async function injectInitializeAction(response) {
-  const contentType = response.headers.get("content-type") || "";
-  if (!contentType.includes("text/html")) return response;
-  const text = await response.text();
-  const action = '<a href="/console/sources/initialize" style="display:inline-flex;align-items:center;justify-content:center;margin-left:8px;border:1px solid #d7dbe2;border-radius:8px;background:#fff;color:#111419;padding:9px 13px;font:600 13px/1 system-ui;text-decoration:none">Initialize source</a>';
-  const updated = text.replace("</header>", `${action}</header>`);
-  return new Response(updated, { status: response.status, statusText: response.statusText, headers: response.headers });
-}
-
-async function injectCandidateIntelligence({ request, response, authenticate, persistence }) {
-  const contentType = response.headers.get("content-type") || "";
-  if (!contentType.includes("text/html")) return response;
-  const { binding, platform } = await loadBoundPlatform({ request, authenticate, persistence });
-  const tenantId = binding.tenant_id;
-  const candidates = platform.store.list("candidateIntelligence", (item) => item.tenant_id === tenantId)
-    .sort((left, right) => right.created_at.localeCompare(left.created_at));
-  const pendingCandidateChanges = platform.store.list("canonicalChangeSets", (item) =>
-    item.tenant_id === tenantId && ["pending_approval", "ready"].includes(item.state) && candidateIdFromProvenance(item.provenance)
-  ).sort((left, right) => right.created_at.localeCompare(left.created_at));
-
-  const items = candidates.length
-    ? candidates.map(candidateReviewItem).join("")
-    : '<li class="empty">No Candidate Intelligence yet.</li>';
-  const pending = pendingCandidateChanges.length
-    ? `<div style="display:grid;gap:10px">${pendingCandidateChanges.map((change) => {
-        const candidateId = candidateIdFromProvenance(change.provenance);
-        const candidate = candidates.find((item) => item.candidate_intelligence_id === candidateId);
-        const statement = candidate?.payload?.statement ?? change.title;
-        return `<article style="border:1px solid #e5e7eb;border-radius:10px;padding:14px;display:grid;gap:8px"><strong>${escapeHtml(statement)}</strong><small>${escapeHtml(change.state)} · explicit approval required</small><button data-approve-change-set="${escapeHtml(change.canonical_change_set_id)}" style="justify-self:start;border:0;border-radius:8px;background:#111419;color:#fff;padding:9px 12px;font:600 13px/1 system-ui;cursor:pointer">Approve & apply</button></article>`;
-      }).join("")}</div>`
-    : '<p class="empty">No candidate-backed Canonical Change Sets are waiting for approval.</p>';
-
-  const panel = `<section class="panel"><div class="panel-header"><h2>Candidate Intelligence</h2><span>Extracted · review before canon</span></div><ul class="candidate-list" style="list-style:none;padding:0;margin:0;display:grid;gap:10px">${items}</ul><p id="candidate-review-message" style="min-height:20px;color:#68707d"></p></section><section class="panel"><div class="panel-header"><h2>Candidate canonical approvals</h2><span>Second explicit step</span></div>${pending}</section>${candidateReviewScript()}`;
-  const text = await response.text();
-  const updated = text.replace("</main></div>", `${panel}</main></div>`);
-  return new Response(updated, { status: response.status, statusText: response.statusText, headers: response.headers });
-}
-
-function candidateReviewItem(candidate) {
-  const statement = candidate.payload?.statement ?? JSON.stringify(candidate.payload);
-  const meta = `${candidate.state} · ${candidate.state === "accepted" ? `canonical revision #${candidate.accepted_canonical_revision ?? "?"}` : "non-canonical"}`;
-  let actions = "";
-  if (candidate.state === "proposed") {
-    actions = `<div style="display:flex;gap:8px;flex-wrap:wrap"><button data-propose-candidate="${escapeHtml(candidate.candidate_intelligence_id)}" style="border:0;border-radius:8px;background:#111419;color:#fff;padding:9px 12px;font:600 13px/1 system-ui;cursor:pointer">Propose for canon</button><button data-reject-candidate="${escapeHtml(candidate.candidate_intelligence_id)}" style="border:1px solid #d7dbe2;border-radius:8px;background:#fff;color:#111419;padding:9px 12px;font:600 13px/1 system-ui;cursor:pointer">Reject</button></div>`;
-  }
-  return `<li style="border:1px solid #e5e7eb;border-radius:10px;padding:14px;display:grid;gap:7px"><strong>${escapeHtml(candidate.record_type)}</strong><span>${escapeHtml(statement)}</span><small>${escapeHtml(meta)}</small>${actions}</li>`;
-}
-
-function candidateReviewScript() {
-  return `<script>
-    const reviewMessage = document.getElementById('candidate-review-message');
-    async function reviewPost(path, body) {
-      reviewMessage.textContent = 'Saving review action…';
-      const response = await fetch(path, {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: body ? { 'content-type': 'application/json' } : undefined,
-        body: body ? JSON.stringify(body) : undefined
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.message || 'Review action failed.');
-      window.location.reload();
-    }
-    document.querySelectorAll('[data-propose-candidate]').forEach((button) => button.addEventListener('click', async () => {
-      button.disabled = true;
-      try { await reviewPost('/v1/intelligence/candidates/' + encodeURIComponent(button.dataset.proposeCandidate) + '/propose-canonical'); }
-      catch (error) { reviewMessage.textContent = error.message || 'Review action failed.'; button.disabled = false; }
-    }));
-    document.querySelectorAll('[data-reject-candidate]').forEach((button) => button.addEventListener('click', async () => {
-      button.disabled = true;
-      try { await reviewPost('/v1/intelligence/candidates/' + encodeURIComponent(button.dataset.rejectCandidate) + '/reject', { reason: 'Rejected by owner in Sovereign Console.' }); }
-      catch (error) { reviewMessage.textContent = error.message || 'Review action failed.'; button.disabled = false; }
-    }));
-    document.querySelectorAll('[data-approve-change-set]').forEach((button) => button.addEventListener('click', async () => {
-      button.disabled = true;
-      try { await reviewPost('/v1/intelligence/canonical/change-sets/' + encodeURIComponent(button.dataset.approveChangeSet) + '/approve-candidate'); }
-      catch (error) { reviewMessage.textContent = error.message || 'Approval failed.'; button.disabled = false; }
-    }));
-  </script>`;
-}
-
-function candidateIdFromProvenance(provenance) {
-  if (!Array.isArray(provenance)) return null;
-  return provenance.find((item) => item && typeof item === "object" && item.candidate_intelligence_id)?.candidate_intelligence_id ?? null;
-}
-
 function html(content) {
   return new Response(content, { headers: { "content-type": "text/html; charset=utf-8" } });
-}
-
-function escapeHtml(value) {
-  return String(value ?? "").replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]);
 }
 
 function runtimeError(error) {

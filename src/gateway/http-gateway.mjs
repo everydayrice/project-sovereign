@@ -2,17 +2,29 @@ import { SovereignError } from "../platform/errors.mjs";
 import { buildConsoleSnapshot } from "../console/console-snapshot.mjs";
 import { consoleShellHtml, publicPageHtml } from "../console/console-shell.mjs";
 
-export function createHttpGateway({ platform, authenticate }) {
+export function createHttpGateway({ platform, authenticate, prepareRequest, finalizeRequest, files, health }) {
   return {
     async fetch(request) {
       const url = new URL(request.url);
-      if (request.method === "GET" && url.pathname === "/health") return json({ status: "ok", runtime: "in_memory_alpha", authentication: "not_configured", persistence: "not_configured" });
+      if (request.method === "GET" && url.pathname === "/health") {
+        const payload = health ? await health() : { status: "ok", runtime: "in_memory_alpha", authentication: "not_configured", persistence: "not_configured", storage: "not_configured" };
+        return json(payload, payload.status === "ok" ? 200 : 503);
+      }
       if (request.method === "GET" && url.pathname === "/") return html(publicPageHtml());
       if (request.method === "GET" && ["/login", "/signup"].includes(url.pathname)) return html(publicPageHtml({ page: url.pathname.slice(1) }));
+
+      let requestContext;
       try {
-        const auth = await authenticate(request);
-        const response = await route({ request, url, auth, platform });
-        return response ?? json({ code: "not_found", message: "Route was not found." }, 404);
+        const initialAuth = await authenticate(request);
+        requestContext = prepareRequest ? await prepareRequest({ request, url, auth: initialAuth }) : { platform, auth: initialAuth };
+        const activePlatform = requestContext?.platform ?? platform;
+        const activeAuth = requestContext?.auth ?? initialAuth;
+        const response = await route({ request, url, auth: activeAuth, platform: activePlatform, files });
+        const resolved = response ?? json({ code: "not_found", message: "Route was not found." }, 404);
+        if (finalizeRequest && resolved.status < 400) {
+          await finalizeRequest({ request, url, response: resolved, platform: activePlatform, auth: activeAuth, requestContext });
+        }
+        return resolved;
       } catch (error) {
         return errorResponse(error);
       }
@@ -20,13 +32,38 @@ export function createHttpGateway({ platform, authenticate }) {
   };
 }
 
-async function route({ request, url, auth, platform }) {
+async function route({ request, url, auth, platform, files }) {
   const { command, traffic, continuity, sources, intelligence, initialization, recovery, improvement } = platform;
-  // Authentication resolves a verified subject. Command resolves that subject
-  // into an active principal in this tenant before any module receives it.
+  const path = url.pathname;
+
+  if (auth.onboarding === true) {
+    if (request.method === "POST" && path === "/v1/bootstrap") {
+      const body = await bodyJson(request);
+      const displayName = body.display_name?.trim() || auth.user?.name?.trim() || "Sovereign Workspace";
+      const slug = body.slug?.trim();
+      const tenant = command.createTenant({ slug, displayName, commandDisplayName: body.command_display_name?.trim() || "COMMAND" });
+      const principal = command.createPrincipal({
+        tenantId: tenant.tenant_id,
+        displayName: auth.user?.name?.trim() || auth.user?.email?.trim() || "Owner",
+        authSubjectReference: auth.authSubject
+      });
+      const workspace = command.createWorkspace({
+        tenantId: tenant.tenant_id,
+        principalId: principal.principal_id,
+        slug: body.workspace_slug?.trim() || "main",
+        displayName: body.workspace_display_name?.trim() || "Main"
+      });
+      auth.tenantId = tenant.tenant_id;
+      auth.principalId = principal.principal_id;
+      auth.onboarding = false;
+      auth.bootstrap = { tenant, principal, workspace };
+      return json({ tenant, principal, workspace, next: "/console" }, 201);
+    }
+    throw new SovereignError("onboarding_required", "Create your Sovereign tenant before accessing protected modules.", { status: 409, details: { bootstrap_endpoint: "/v1/bootstrap" } });
+  }
+
   command.requirePrincipal(auth.tenantId, auth.principalId);
   const base = { tenantId: auth.tenantId, principalId: auth.principalId };
-  const path = url.pathname;
 
   if (request.method === "GET" && path === "/v1/console/snapshot") return json(buildConsoleSnapshot({ platform, tenantId: auth.tenantId }));
   const consolePage = /^\/console(?:\/(home|command|intelligence|control-plane|continuity|sources|integrations|extensions|audit))?$/.exec(path);
@@ -48,6 +85,38 @@ async function route({ request, url, auth, platform }) {
   if (request.method === "POST" && sourceInventory) { const body = await bodyJson(request); return json(sources.recordInventory({ tenantId: auth.tenantId, sourceId: sourceInventory[1], items: body.items ?? [], excludedCount: body.excluded_count ?? 0 })); }
   const sourceFailure = /^\/v1\/sources\/([^/]+)\/failure$/.exec(path);
   if (request.method === "POST" && sourceFailure) { const body = await bodyJson(request); return json({ source: sources.markFailed({ tenantId: auth.tenantId, sourceId: sourceFailure[1], reason: body.reason ?? "Source failure reported.", stale: body.stale !== false }) }); }
+  const sourceContent = /^\/v1\/sources\/([^/]+)\/items\/([^/]+)\/content$/.exec(path);
+  if (request.method === "PUT" && sourceContent) {
+    if (!files) throw new SovereignError("storage_not_configured", "SOVEREIGN_FILES R2 binding is required.", { status: 503 });
+    const sourceId = sourceContent[1];
+    const sourceItemId = sourceContent[2];
+    const item = sources.getSourceItem(auth.tenantId, sourceItemId);
+    if (item.source_id !== sourceId) throw new SovereignError("source_item_mismatch", "Source item does not belong to this source.", { status: 409 });
+    const result = await files.put({
+      tenantId: auth.tenantId,
+      sourceId,
+      sourceItemId,
+      body: request.body,
+      contentType: request.headers.get("content-type") || item.mime_type || "application/octet-stream",
+      contentLength: numericHeader(request.headers.get("content-length")) ?? item.size_bytes,
+      contentHash: request.headers.get("x-content-sha256") || item.content_hash
+    });
+    const savedItem = sources.attachStoredObject({ tenantId: auth.tenantId, sourceId, sourceItemId, objectKey: result.object_key, objectVersion: result.version });
+    return json({ source_item: savedItem, object: result }, 201);
+  }
+  if (request.method === "GET" && sourceContent) {
+    if (!files) throw new SovereignError("storage_not_configured", "SOVEREIGN_FILES R2 binding is required.", { status: 503 });
+    const sourceId = sourceContent[1];
+    const sourceItemId = sourceContent[2];
+    const item = sources.getSourceItem(auth.tenantId, sourceItemId);
+    if (item.source_id !== sourceId || item.storage_state !== "stored") throw new SovereignError("stored_object_not_found", "Stored source object was not found.", { status: 404 });
+    const object = await files.get({ tenantId: auth.tenantId, sourceId, sourceItemId });
+    if (!object) throw new SovereignError("stored_object_not_found", "Stored source object was not found.", { status: 404 });
+    const headers = new Headers();
+    object.writeHttpMetadata?.(headers);
+    headers.set("etag", object.httpEtag ?? object.etag ?? "");
+    return new Response(object.body, { headers });
+  }
 
   if (request.method === "POST" && path === "/v1/initialization/runs") { const body = await bodyJson(request); return json({ initialization_run: initialization.start({ ...base, scope: body.scope ?? {}, sourceIds: body.source_ids, mode: body.mode ?? "initialize" }) }, 201); }
   if (request.method === "GET" && path === "/v1/initialization/runs") return json({ initialization_runs: initialization.listRuns(auth.tenantId) });
@@ -102,6 +171,7 @@ async function route({ request, url, auth, platform }) {
 
 function scopeFromUrl(url) { return url.searchParams.get("scope_key") ? { key: url.searchParams.get("scope_key") } : {}; }
 async function bodyJson(request) { try { return await request.json(); } catch { throw new SovereignError("invalid_json", "Request body must be valid JSON."); } }
+function numericHeader(value) { if (value === null || value === "") return null; const parsed = Number(value); return Number.isFinite(parsed) && parsed >= 0 ? parsed : null; }
 function json(payload, status = 200) { return new Response(JSON.stringify(payload), { status, headers: { "content-type": "application/json; charset=utf-8" } }); }
 function html(content) { return new Response(content, { headers: { "content-type": "text/html; charset=utf-8" } }); }
 function errorResponse(error) { if (error instanceof SovereignError) return json({ code: error.code, message: error.message, details: error.details }, error.status); return json({ code: "internal_error", message: "Unexpected Sovereign Gateway error." }, 500); }

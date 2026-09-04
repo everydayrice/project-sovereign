@@ -45,7 +45,7 @@ export default {
             persistence
           };
         },
-        finalizeRequest: async ({ platform, auth, requestContext }) => {
+        finalizeRequest: async ({ request, platform, auth, requestContext }) => {
           if (!requestContext?.persistence) return;
           if (auth.bootstrap) {
             await requestContext.persistence.bootstrapTenant({
@@ -57,6 +57,7 @@ export default {
             });
             return;
           }
+          if (["GET", "HEAD", "OPTIONS"].includes(request.method)) return;
           if (!auth.tenantId || requestContext.version === null || requestContext.version === undefined) return;
           await requestContext.persistence.saveTenant({
             tenantId: auth.tenantId,

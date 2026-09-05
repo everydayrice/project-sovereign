@@ -13,12 +13,16 @@ const COLLECTIONS = [
 
 export class InMemorySovereignStore {
   constructor() {
+    this._dirty = new Map(COLLECTIONS.map((collection) => [collection, new Set()]));
+    this._importing = false;
     for (const collection of COLLECTIONS) this[collection] = new Map();
   }
 
   put(collection, value) {
     this.assertCollection(collection);
-    this[collection].set(value[`${singular(collection)}_id`] ?? value.id, structuredClone(value));
+    const id = value[`${singular(collection)}_id`] ?? value.id;
+    this[collection].set(id, structuredClone(value));
+    this.markDirty(collection, id);
     return structuredClone(value);
   }
 
@@ -34,6 +38,7 @@ export class InMemorySovereignStore {
     if (!existing) throw new SovereignError("not_found", `${singular(collection)} ${id} was not found.`, { status: 404 });
     const next = typeof update === "function" ? update(structuredClone(existing)) : { ...existing, ...update };
     this[collection].set(id, structuredClone(next));
+    this.markDirty(collection, id);
     return structuredClone(next);
   }
 
@@ -55,20 +60,48 @@ export class InMemorySovereignStore {
     return Object.fromEntries(COLLECTIONS.filter((collection) => !excluded.has(collection)).map((collection) => [collection, this.list(collection)]));
   }
 
-  importState(state = {}, { clear = true, exclude = ["connectorDefinitions"] } = {}) {
+  exportChanges({ exclude = ["connectorDefinitions"] } = {}) {
     const excluded = new Set(exclude);
+    const changes = {};
     for (const collection of COLLECTIONS) {
       if (excluded.has(collection)) continue;
-      if (clear) this[collection].clear();
-      const values = state?.[collection];
-      if (!Array.isArray(values)) continue;
-      for (const value of values) this.put(collection, value);
+      const ids = this._dirty.get(collection);
+      if (!ids?.size) continue;
+      changes[collection] = [...ids].map((id) => this.get(collection, id)).filter(Boolean);
+    }
+    return changes;
+  }
+
+  clearChanges() {
+    for (const ids of this._dirty.values()) ids.clear();
+    return this;
+  }
+
+  importState(state = {}, { clear = true, exclude = ["connectorDefinitions"] } = {}) {
+    const excluded = new Set(exclude);
+    this._importing = true;
+    try {
+      for (const collection of COLLECTIONS) {
+        if (excluded.has(collection)) continue;
+        if (clear) this[collection].clear();
+        const values = state?.[collection];
+        if (!Array.isArray(values)) continue;
+        for (const value of values) this.put(collection, value);
+      }
+    } finally {
+      this._importing = false;
+      this.clearChanges();
     }
     return this;
   }
 
   assertCollection(collection) {
     if (!COLLECTIONS.includes(collection)) throw new SovereignError("unknown_collection", `Unknown Sovereign store collection: ${collection}.`, { status: 500 });
+  }
+
+  markDirty(collection, id) {
+    if (this._importing || id === undefined || id === null) return;
+    this._dirty.get(collection).add(id);
   }
 }
 

@@ -14,12 +14,8 @@ export default {
     try {
       const url = new URL(request.url);
 
-      if (request.method === "GET" && url.pathname === "/login") {
-        return html(authPageHtml({ mode: "login" }));
-      }
-      if (request.method === "GET" && url.pathname === "/signup") {
-        return html(authPageHtml({ mode: "signup" }));
-      }
+      if (request.method === "GET" && url.pathname === "/login") return html(authPageHtml({ mode: "login" }));
+      if (request.method === "GET" && url.pathname === "/signup") return html(authPageHtml({ mode: "signup" }));
       if (url.pathname === "/api/auth" || url.pathname.startsWith("/api/auth/")) {
         return await proxyNeonAuth(request, { baseUrl: env.NEON_AUTH_BASE_URL });
       }
@@ -55,22 +51,12 @@ export default {
           if (!persistence) throw new SovereignError("database_not_configured", "DATABASE_URL is required for the production Sovereign runtime.", { status: 503 });
           const binding = await persistence.resolveAuthBinding(auth.authSubject);
           if (!binding) {
-            return {
-              platform: createSovereignPlatform(),
-              auth: { ...auth, onboarding: true },
-              version: null,
-              persistence
-            };
+            return { platform: createSovereignPlatform(), auth: { ...auth, onboarding: true }, version: null, persistence };
           }
           const loaded = await persistence.loadTenant(binding.tenant_id);
           return {
             platform: createSovereignPlatform({ store: loaded.store }),
-            auth: {
-              ...auth,
-              tenantId: binding.tenant_id,
-              principalId: binding.principal_id,
-              onboarding: false
-            },
+            auth: { ...auth, tenantId: binding.tenant_id, principalId: binding.principal_id, onboarding: false },
             version: loaded.version,
             persistence
           };
@@ -89,17 +75,11 @@ export default {
           }
           if (["GET", "HEAD", "OPTIONS"].includes(request.method)) return;
           if (!auth.tenantId || requestContext.version === null || requestContext.version === undefined) return;
-          await requestContext.persistence.saveTenant({
-            tenantId: auth.tenantId,
-            store: platform.store,
-            expectedVersion: requestContext.version
-          });
+          await requestContext.persistence.saveTenant({ tenantId: auth.tenantId, store: platform.store, expectedVersion: requestContext.version });
         }
       });
       const response = await gateway.fetch(request);
-      if (request.method === "GET" && url.pathname === "/console/sources" && response.ok) {
-        return injectSourceUploadAction(response);
-      }
+      if (request.method === "GET" && url.pathname === "/console/sources" && response.ok) return injectSourceUploadAction(response);
       return response;
     } catch (error) {
       return runtimeError(error);
@@ -168,23 +148,26 @@ async function injectSourceUploadAction(response) {
 }
 
 async function productionHealth({ env, persistence }) {
-  const configured = {
-    database: Boolean(env.DATABASE_URL),
-    authentication: Boolean(env.NEON_AUTH_BASE_URL),
-    storage: Boolean(env.SOVEREIGN_FILES)
-  };
+  const configured = { database: Boolean(env.DATABASE_URL), authentication: Boolean(env.NEON_AUTH_BASE_URL), storage: Boolean(env.SOVEREIGN_FILES) };
   let databaseReachable = false;
+  let normalized = { search_schema: false, runtime_bridge_available: false, tenant_count: 0 };
   if (persistence) {
-    try { databaseReachable = await persistence.health(); } catch { databaseReachable = false; }
+    try {
+      databaseReachable = await persistence.health();
+      if (databaseReachable && persistence.normalizedHealth) normalized = await persistence.normalizedHealth();
+    } catch { databaseReachable = false; }
   }
-  const ok = configured.database && configured.authentication && configured.storage && databaseReachable;
+  const schemaReady = normalized.search_schema === true;
+  const ok = configured.database && configured.authentication && configured.storage && databaseReachable && schemaReady;
   return {
     status: ok ? "ok" : "degraded",
     runtime: "cloudflare_worker",
     authentication: configured.authentication ? "neon_auth_session" : "not_configured",
-    persistence: configured.database ? (databaseReachable ? "neon_runtime_bridge" : "unreachable") : "not_configured",
+    persistence: configured.database ? (databaseReachable ? (schemaReady ? "normalized_neon" : "schema_migration_required") : "unreachable") : "not_configured",
     storage: configured.storage ? "r2" : "not_configured",
-    canonical_storage_model: "runtime_bridge_pending_normalized_repository_cutover"
+    search: schemaReady ? "postgres_full_text" : "not_configured",
+    canonical_storage_model: "normalized_neon_with_snapshot_rollback_mirror",
+    rollback_mirror: normalized.runtime_bridge_available ? "available" : "missing"
   };
 }
 
@@ -193,8 +176,6 @@ function html(content) {
 }
 
 function runtimeError(error) {
-  if (error instanceof SovereignError) {
-    return Response.json({ code: error.code, message: error.message, details: error.details }, { status: error.status });
-  }
+  if (error instanceof SovereignError) return Response.json({ code: error.code, message: error.message, details: error.details }, { status: error.status });
   return Response.json({ code: "internal_error", message: "Unexpected Sovereign runtime error." }, { status: 500 });
 }

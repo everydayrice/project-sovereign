@@ -11,6 +11,8 @@ export const AGENT_OPERATIONS = Object.freeze({
   resume: op(["continuity:read", "traffic:read"], false),
   task_create: op(["continuity:write"], true),
   task_update: op(["continuity:write"], true),
+  idea_create: op(["continuity:write"], false),
+  idea_update: op(["continuity:write"], false),
   task_checkpoint: op(["continuity:write", "traffic:write"], true),
   traffic_current: op(["traffic:read"], false),
   resource_claim: op(["traffic:write"], true),
@@ -20,7 +22,7 @@ export const AGENT_OPERATIONS = Object.freeze({
   canonical_propose: op(["intelligence:propose"], true)
 });
 
-export async function executeAgentOperation({ name, args = {}, auth, persistence, retrieval }) {
+export async function executeAgentOperation({ name, args = {}, auth, persistence, retrieval, ideaStore }) {
   const definition = AGENT_OPERATIONS[name];
   if (!definition) throw new SovereignError("agent_operation_unknown", `Unknown Sovereign agent operation: ${name}.`, { status: 404 });
   requireScopes(auth, definition.requiredScopes);
@@ -60,8 +62,8 @@ export async function executeAgentOperation({ name, args = {}, auth, persistence
   } else if (name === "continuity_get") {
     if (args.kind === "sessions") payload = { sessions: platform.continuity.listSessions(auth.tenantId, { taskCapsuleId: args.task_capsule_id }) };
     else if (args.kind === "memories") payload = { candidate_memories: platform.continuity.listCandidateMemories(auth.tenantId) };
-    else if (args.kind === "ideas") payload = { ideas: platform.continuity.listIdeas(auth.tenantId) };
-    else payload = { tasks: platform.continuity.listTasks(auth.tenantId) };
+    else if (args.kind === "ideas") payload = { ideas: ideaStore ? await ideaStore.list({ tenantId: auth.tenantId, states: args.states }) : platform.continuity.listIdeas(auth.tenantId) };
+    else payload = { tasks: platform.continuity.listTasks(auth.tenantId, { states: args.states }) };
   } else if (name === "resume") {
     payload = platform.continuity.resumePacket({ tenantId: auth.tenantId, taskCapsuleId: args.task_capsule_id, currentTraffic: platform.traffic.currentTraffic({ tenantId: auth.tenantId }) });
   } else if (name === "task_create") {
@@ -85,6 +87,19 @@ export async function executeAgentOperation({ name, args = {}, auth, persistence
       nextAction: args.next_action,
       blockers: args.blockers,
       intelligenceReferences: args.intelligence_references
+    });
+  } else if (name === "idea_create") {
+    if (!ideaStore) throw new SovereignError("idea_store_not_configured", "Normalized Idea storage is not configured.", { status: 503 });
+    payload = await ideaStore.create({
+      tenantId: auth.tenantId, ownerPrincipalId: auth.principalId, title: args.title, description: args.description,
+      state: args.state ?? "captured", tags: args.tags ?? [], sourceReferences: args.source_references ?? [],
+      intelligenceReferences: args.intelligence_references ?? [], taskCapsuleId: args.task_capsule_id ?? null
+    });
+  } else if (name === "idea_update") {
+    if (!ideaStore) throw new SovereignError("idea_store_not_configured", "Normalized Idea storage is not configured.", { status: 503 });
+    payload = await ideaStore.update({
+      tenantId: auth.tenantId, ideaId: args.idea_id, title: args.title, description: args.description, state: args.state,
+      tags: args.tags, sourceReferences: args.source_references, intelligenceReferences: args.intelligence_references, taskCapsuleId: args.task_capsule_id
     });
   } else if (name === "task_checkpoint") {
     payload = platform.traffic.checkpoint({ ...base, trafficSessionId: args.traffic_session_id, kind: args.kind ?? "progress", summary: args.summary, nextAction: args.next_action, blockers: args.blockers ?? [], artifactReferences: args.artifact_references ?? [], sessionState: args.session_state });
@@ -110,9 +125,7 @@ export async function executeAgentOperation({ name, args = {}, auth, persistence
   return { data: payload };
 }
 
-export function requireAgentScopes(auth, scopes) {
-  requireScopes(auth, scopes);
-}
+export function requireAgentScopes(auth, scopes) { requireScopes(auth, scopes); }
 
 function requireScopes(auth, scopes) {
   const permissions = auth?.permissions ?? [];
@@ -130,6 +143,4 @@ function normalizedActor(actor = {}, auth) {
   };
 }
 
-function op(requiredScopes, mutates) {
-  return { requiredScopes, mutates };
-}
+function op(requiredScopes, mutates) { return { requiredScopes, mutates }; }

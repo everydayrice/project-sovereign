@@ -1,8 +1,29 @@
 -- Project Sovereign V1 service identity, Continuity and extension-event schema.
 -- Apply after 0004_v1_normalized_runtime_search.sql.
--- Non-destructive: only additive tables/indexes/policies.
+-- Non-destructive: only additive tables/indexes/policies plus owner-role backfill.
 
 BEGIN;
+
+-- COMMAND already had roles/bindings in V0.1, but the first alpha tenant was
+-- bootstrapped before those controls were used by the browser runtime. Establish
+-- one explicit Owner role per tenant and bind the earliest active human principal
+-- so privileged V1 actions do not rely on "any signed-in human" semantics.
+INSERT INTO command.roles (role_id,tenant_id,name,permission_set,created_at,updated_at)
+SELECT 'rol_owner_' || md5(t.tenant_id), t.tenant_id, 'Owner', '["*"]'::jsonb, now(), now()
+FROM command.tenants t
+ON CONFLICT (tenant_id,name) DO NOTHING;
+
+INSERT INTO command.principal_role_bindings (tenant_id,principal_id,role_id,granted_by_principal_id,created_at)
+SELECT tenant_id,principal_id,role_id,principal_id,now()
+FROM (
+  SELECT t.tenant_id,
+         (SELECT p.principal_id FROM command.principals p WHERE p.tenant_id=t.tenant_id AND p.kind='human' AND p.state='active' ORDER BY p.created_at,p.principal_id LIMIT 1) AS principal_id,
+         r.role_id
+  FROM command.tenants t
+  JOIN command.roles r ON r.tenant_id=t.tenant_id AND r.name='Owner'
+) seed
+WHERE principal_id IS NOT NULL
+ON CONFLICT (tenant_id,principal_id,role_id) DO NOTHING;
 
 CREATE TABLE command.service_credentials (
   service_credential_id text PRIMARY KEY,

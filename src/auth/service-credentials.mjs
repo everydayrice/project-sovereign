@@ -20,8 +20,27 @@ export function createServiceCredentialStore(databaseUrl, { httpSql, clientFacto
   const sql = httpSql ?? neon(databaseUrl);
   const makeClient = clientFactory ?? (() => new Client(databaseUrl));
 
+  async function assertManagePermission(tenantId, principalId) {
+    const rows = await sql.query(
+      `SELECT r.permission_set
+         FROM command.principal_role_bindings b
+         JOIN command.roles r ON r.role_id=b.role_id AND r.tenant_id=b.tenant_id
+         JOIN command.principals p ON p.principal_id=b.principal_id AND p.tenant_id=b.tenant_id
+        WHERE b.tenant_id=$1 AND b.principal_id=$2 AND p.state='active'`,
+      [tenantId, principalId]
+    );
+    const permissions = rows.flatMap((row) => Array.isArray(row.permission_set) ? row.permission_set : []);
+    if (!permissions.includes("*") && !permissions.includes("command.service_credentials.manage")) {
+      throw new SovereignError("command_permission_denied", "Only an authorized COMMAND principal can manage service credentials.", { status: 403 });
+    }
+    return permissions;
+  }
+
   return {
+    assertManagePermission,
+
     async create({ tenantId, createdByPrincipalId, displayName, scopes = [], expiresAt = null }) {
+      await assertManagePermission(tenantId, createdByPrincipalId);
       requireCondition(displayName?.trim(), "service_identity_name_required", "Service identity display name is required.");
       const normalizedScopes = normalizeScopes(scopes);
       const token = createToken();
@@ -95,28 +114,41 @@ export function createServiceCredentialStore(databaseUrl, { httpSql, clientFacto
       };
     },
 
-    async list({ tenantId }) {
-      const rows = await sql.query(
+    async list({ tenantId, requesterPrincipalId }) {
+      await assertManagePermission(tenantId, requesterPrincipalId);
+      return sql.query(
         `SELECT service_credential_id,tenant_id,principal_id,display_name,token_prefix,scopes,state,expires_at,last_used_at,created_at,updated_at,revoked_at
            FROM command.service_credentials
           WHERE tenant_id=$1
           ORDER BY created_at DESC`,
         [tenantId]
       );
-      return rows;
     },
 
     async revoke({ tenantId, credentialId, revokedByPrincipalId }) {
-      const rows = await sql.query(
-        `UPDATE command.service_credentials
-            SET state='revoked',revoked_by_principal_id=$3,revoked_at=now(),updated_at=now()
-          WHERE tenant_id=$1 AND service_credential_id=$2 AND state='active'
-        RETURNING service_credential_id,tenant_id,principal_id,display_name,token_prefix,scopes,state,expires_at,last_used_at,created_at,updated_at,revoked_at`,
-        [tenantId, credentialId, revokedByPrincipalId]
-      );
-      if (!rows.length) throw new SovereignError("service_credential_not_found", "Active service credential was not found.", { status: 404 });
-      await sql.query("UPDATE command.principals SET state='revoked',updated_at=now(),revision=revision+1 WHERE tenant_id=$1 AND principal_id=$2", [tenantId, rows[0].principal_id]);
-      return rows[0];
+      await assertManagePermission(tenantId, revokedByPrincipalId);
+      const client = makeClient();
+      await client.connect();
+      try {
+        await client.query("BEGIN");
+        const result = await client.query(
+          `UPDATE command.service_credentials
+              SET state='revoked',revoked_by_principal_id=$3,revoked_at=now(),updated_at=now()
+            WHERE tenant_id=$1 AND service_credential_id=$2 AND state='active'
+          RETURNING service_credential_id,tenant_id,principal_id,display_name,token_prefix,scopes,state,expires_at,last_used_at,created_at,updated_at,revoked_at`,
+          [tenantId, credentialId, revokedByPrincipalId]
+        );
+        const rows = result.rows ?? result;
+        if (!rows.length) throw new SovereignError("service_credential_not_found", "Active service credential was not found.", { status: 404 });
+        await client.query("UPDATE command.principals SET state='revoked',updated_at=now(),revision=revision+1 WHERE tenant_id=$1 AND principal_id=$2", [tenantId, rows[0].principal_id]);
+        await client.query("COMMIT");
+        return rows[0];
+      } catch (error) {
+        try { await client.query("ROLLBACK"); } catch {}
+        throw error;
+      } finally {
+        await client.end();
+      }
     }
   };
 }

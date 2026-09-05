@@ -17,7 +17,7 @@ export function createSovereignPlatform({ clock = () => new Date(), trafficPolic
   const initialization = new InitializationService({ store, clock, sources, intelligence });
   const improvement = new ImprovementService({ store, clock });
   const recovery = new RecoveryService({ store, clock, intelligence, sources, initialization, improvement });
-  const traffic = new TrafficService({ store, clock, command, continuity, policy: trafficPolicy });
   const extensions = new ExtensionHost({ store, clock });
+  const traffic = new TrafficService({ store, clock, command, continuity, intelligence, sources, extensions, policy: trafficPolicy });
   return { store, command, continuity, sources, intelligence, initialization, improvement, recovery, traffic, extensions };
 }

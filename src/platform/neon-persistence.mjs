@@ -1,3 +1,4 @@
+import { neon } from "@neondatabase/serverless";
 import { createNormalizedNeonPersistence } from "./neon-normalized-persistence.mjs";
 
 // Compatibility entry retained so existing Worker/service wiring does not need
@@ -5,10 +6,11 @@ import { createNormalizedNeonPersistence } from "./neon-normalized-persistence.m
 // runtime.tenant_state_snapshots remains a versioned rollback/parity mirror.
 export function createNeonPersistence(databaseUrl, options) {
   const persistence = createNormalizedNeonPersistence(databaseUrl, options);
+  const sql = options?.httpSql ?? neon(databaseUrl);
   return {
     ...persistence,
     async bootstrapTenant(args) {
-      const { tenant, store } = args;
+      const { tenant, principal, store } = args;
       if (!store.list("canonicalStates", (state) => state.tenant_id === tenant.tenant_id).length) {
         const timestamp = new Date().toISOString();
         store.put("canonicalStates", {
@@ -20,7 +22,20 @@ export function createNeonPersistence(databaseUrl, options) {
           updated_at: timestamp
         });
       }
-      return persistence.bootstrapTenant(args);
+      const result = await persistence.bootstrapTenant(args);
+      await sql.query(
+        `WITH owner_role AS (
+           INSERT INTO command.roles (role_id,tenant_id,name,permission_set,created_at,updated_at)
+           VALUES ('rol_owner_' || md5($1),$1,'Owner','["*"]'::jsonb,now(),now())
+           ON CONFLICT (tenant_id,name) DO UPDATE SET permission_set=EXCLUDED.permission_set,updated_at=now()
+           RETURNING role_id
+         )
+         INSERT INTO command.principal_role_bindings (tenant_id,principal_id,role_id,granted_by_principal_id,created_at)
+         SELECT $1,$2,role_id,$2,now() FROM owner_role
+         ON CONFLICT (tenant_id,principal_id,role_id) DO NOTHING`,
+        [tenant.tenant_id, principal.principal_id]
+      );
+      return result;
     }
   };
 }

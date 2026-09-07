@@ -2,6 +2,7 @@ import { SovereignError } from '../platform/errors.mjs';
 
 // Authentication establishes identity; governance independently authorizes changes.
 export function governancePermission(request) {
+  if (request.method === 'GET' && new URL(request.url).pathname === '/v1/export') return 'command.export';
   if (['GET', 'HEAD', 'OPTIONS'].includes(request.method)) return null;
   const path = new URL(request.url).pathname;
   if (path.startsWith('/v1/command/service-credentials')) return 'command.service_credentials.manage';

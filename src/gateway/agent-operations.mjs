@@ -66,10 +66,16 @@ export async function executeAgentOperation({ name, args = {}, auth, persistence
     else if (args.mode === "records") payload = { records: platform.intelligence.listRecords({ tenantId: auth.tenantId, includeHistorical: args.history === true }) };
     else payload = platform.intelligence.canonicalStatus({ tenantId: auth.tenantId });
   } else if (name === "continuity_get") {
-    if (args.kind === "sessions") payload = { sessions: platform.continuity.listSessions(auth.tenantId, { taskCapsuleId: args.task_capsule_id }) };
+    if (args.kind === "task") {
+      const task = platform.continuity.requireTask(auth.tenantId, args.task_capsule_id);
+      payload = { task, recent_checkpoints: platform.continuity.recentCheckpoints(auth.tenantId, args.task_capsule_id, 100) };
+    } else if (args.kind === "sessions") payload = { sessions: platform.continuity.listSessions(auth.tenantId, { taskCapsuleId: args.task_capsule_id }) };
     else if (args.kind === "memories") payload = { candidate_memories: platform.continuity.listCandidateMemories(auth.tenantId) };
     else if (args.kind === "ideas") payload = { ideas: ideaStore ? await ideaStore.list({ tenantId: auth.tenantId, states: args.states }) : platform.continuity.listIdeas(auth.tenantId) };
-    else payload = { tasks: platform.continuity.listTasks(auth.tenantId, { states: args.states }) };
+    else payload = { tasks: platform.continuity.listTasks(auth.tenantId, { states: args.states }).map(task => {
+      const checkpoints = platform.store.list("trafficCheckpoints", item => item.tenant_id === auth.tenantId && item.task_capsule_id === task.task_capsule_id).sort((a,b) => b.created_at.localeCompare(a.created_at));
+      return { ...task, checkpoint_count: checkpoints.length, latest_checkpoint: checkpoints[0] ?? null };
+    }) };
   } else if (name === "resume") {
     payload = platform.continuity.resumePacket({ tenantId: auth.tenantId, taskCapsuleId: args.task_capsule_id, currentTraffic: platform.traffic.currentTraffic({ tenantId: auth.tenantId }) });
   } else if (name === "task_create") {

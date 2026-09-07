@@ -1,3 +1,4 @@
+import { exportTenant } from "./portability/export.mjs";
 import { authorizeGovernance } from "./auth/governance.mjs";
 import baseWorker from "./worker.mjs";
 import { createSovereignPlatform } from "./platform/sovereign-platform.mjs";
@@ -26,6 +27,12 @@ export default {
       const credentialStore = env.DATABASE_URL ? createServiceCredentialStore(env.DATABASE_URL) : null;
       const authenticateService = credentialStore ? createServiceAuthenticator({ credentialStore }) : null;
       const ideaStore = env.DATABASE_URL ? createIdeaStore(env.DATABASE_URL) : null;
+
+      if (request.method === "GET" && url.pathname === "/v1/export") {
+        const { binding, platform } = await loadBoundPlatform({ request, authenticate, persistence });
+        const [ideas, commandConfig] = await Promise.all([ideaStore.list({ tenantId: binding.tenant_id }), persistence.exportCommandConfig(binding.tenant_id)]);
+        return Response.json(exportTenant({ platform, tenantId: binding.tenant_id, ideas, commandConfig }), { headers: { "cache-control": "private, no-store", "content-disposition": "attachment; filename=sovereign-export.json", "x-content-type-options": "nosniff" } });
+      }
 
       if (url.pathname === "/mcp") {
         requireMachineRuntime({ persistence, retrieval, authenticateService });

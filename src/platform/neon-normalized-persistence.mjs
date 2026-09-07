@@ -123,6 +123,14 @@ export function createNormalizedNeonPersistence(databaseUrl, { httpSql, clientFa
       return rows[0] ?? null;
     },
 
+    async exportCommandConfig(tenantId) {
+      const rows = await sql.query(`SELECT
+        (SELECT COALESCE(jsonb_agg(to_jsonb(r)), '[]'::jsonb) FROM command.roles r WHERE r.tenant_id=$1) AS roles,
+        (SELECT COALESCE(jsonb_agg(to_jsonb(b)), '[]'::jsonb) FROM command.principal_role_bindings b WHERE b.tenant_id=$1) AS role_bindings,
+        (SELECT COALESCE(jsonb_agg(to_jsonb(p)), '[]'::jsonb) FROM command.policies p WHERE p.tenant_id=$1) AS policies`, [tenantId]);
+      return rows[0] ?? {};
+    },
+
     async principalPermissions({ tenantId, principalId }) {
       const rows = await sql.query(`SELECT r.permission_set FROM command.principal_role_bindings b
         JOIN command.roles r ON r.tenant_id=b.tenant_id AND r.role_id=b.role_id

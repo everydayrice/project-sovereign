@@ -10,12 +10,12 @@ export function previewLegacy({platform,tenantId,repository,commit,files}) {
   requireCondition(file.content&&typeof file.content==='object'&&!Array.isArray(file.content),'legacy_record_invalid','Legacy JSON records must be objects.');
   requireCondition(file.checkpoints===undefined||(Array.isArray(file.checkpoints)&&file.checkpoints.length<=1000&&file.checkpoints.every(c=>c&&typeof c==='object'&&typeof c.summary==='string'&&c.summary.trim())), 'legacy_checkpoints_invalid','Checkpoint history must contain summaries (maximum 1,000 per task).');
   const checkpoints=file.checkpoints??[];
-  const record=file.content;const kind=record.kind==='task_capsule'?'working_task':'intelligence_candidate';
+  const record=file.content;const recordType=['fact','decision','policy','entity','project','domain','architecture','constraint','relationship','summary'].includes(record.kind)?record.kind:'summary';const kind=record.kind==='task_capsule'?'working_task':'intelligence_candidate';
   const provenance={repository,path:file.path,commit,legacy_id:record.id??null,source_created_at:record.created_at??null,source_updated_at:record.updated_at??null};
   const locator=`https://github.com/${repository}/blob/${commit}/${file.path.split('/').map(encodeURIComponent).join('/')}`;
   const existing=platform.sources.listSources(tenantId).find(source=>source.canonical_locator===locator);
   const conflicts=platform.store.list('canonicalRecords',item=>item.tenant_id===tenantId&&item.provenance?.some(ref=>ref.legacy_id===record.id&&record.id)).map(item=>item.canonical_record_id);
-  return {entry_id:stableHash({repository,commit,path:file.path,record,checkpoints}),path:file.path,kind,title:String(record.title??record.name??record.id??file.path),lifecycle:record.status??record.state??'unknown',authority:'historical',provenance,locator,existing_source_id:existing?.source_id??null,possible_conflicts:conflicts,record,checkpoints};
+  return {entry_id:stableHash({repository,commit,path:file.path,record,checkpoints}),path:file.path,kind,record_type:recordType,title:String(record.title??record.name??record.id??file.path),lifecycle:record.status??record.state??'unknown',authority:'historical',provenance,locator,existing_source_id:existing?.source_id??null,possible_conflicts:conflicts,record,checkpoints};
  });
  requireCondition(new Set(inventory.map(item=>item.path)).size===inventory.length,'legacy_duplicate_path','Each path may appear only once.');
  return {format:'sovereign.legacy-preview',repository,commit,plan_hash:stableHash(inventory),inventory,canonical_writes:0,notice:'Intelligence imports remain candidates. Working tasks retain their legacy lifecycle. Review provenance, conflicts and timestamps before selecting entries.'};
@@ -39,9 +39,9 @@ export function applyLegacy({platform,tenantId,principalId,repository,commit,fil
   platform.sources.updateProcessing({tenantId,sourceId:source.source_id,processingState:'analyzed',currentness:'unknown',delta:{analyzedItemCount:1,indexedItemCount:1}});
   let result,collection,id;
   if(item.kind==='working_task'){
-   result=platform.continuity.createTaskCapsule({tenantId,ownerPrincipalId:principalId,title:item.record.title,objective:item.record.objective,state:item.record.status,nextAction:item.record.next_action??item.checkpoints.at(-1)?.next_action,blockers:item.record.blocked_by??[],intelligenceReferences:[{legacy_provenance:item.provenance,source_id:source.source_id,legacy_checkpoints:item.checkpoints}]});collection='taskCapsules';id=result.task_capsule_id;
+   result=platform.continuity.createTaskCapsule({tenantId,ownerPrincipalId:principalId,title:item.record.title,objective:item.record.objective,state:item.record.status,nextAction:item.record.next_action??item.checkpoints.at(-1)?.next_action??(Array.isArray(item.checkpoints.at(-1)?.next_actions)?item.checkpoints.at(-1).next_actions.join('\n'):undefined),blockers:item.record.blocked_by??item.checkpoints.at(-1)?.blocked_by??[],intelligenceReferences:[{legacy_provenance:item.provenance,source_id:source.source_id,legacy_checkpoints:item.checkpoints}]});collection='taskCapsules';id=result.task_capsule_id;
   }else{
-   result=platform.intelligence.createCandidate({tenantId,principalId,recordType:'summary',payload:{legacy_record:item.record,legacy_lifecycle:item.lifecycle},sourceIds:[source.source_id],provenance:[item.provenance],reason:'Selective legacy import; requires reconciliation and human review.'});collection='candidateIntelligence';id=result.candidate_intelligence_id;
+   result=platform.intelligence.createCandidate({tenantId,principalId,recordType:item.record_type,payload:{legacy_record:item.record,legacy_lifecycle:item.lifecycle},sourceIds:[source.source_id],provenance:[item.provenance],reason:'Selective legacy import; requires reconciliation and human review.'});collection='candidateIntelligence';id=result.candidate_intelligence_id;
   }
   const dates={};for(const key of ['created_at','updated_at'])if(typeof item.record[key]==='string'&&Number.isFinite(Date.parse(item.record[key])))dates[key]=new Date(item.record[key]).toISOString();
   if(Object.keys(dates).length)platform.store.update(collection,id,dates);

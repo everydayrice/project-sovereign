@@ -25,7 +25,7 @@ const TOOL_DEFINITIONS = Object.freeze([
     type: "object", properties: { record_id: { type: "string" }, mode: { enum: ["status","understanding","records"] }, history: { type: "boolean" } }
   }),
   tool("continuity_get", "List durable Continuity tasks, sessions, candidate memories, or Ideas.", {
-    type: "object", properties: { kind: { enum: ["tasks","sessions","memories","ideas"] }, task_capsule_id: { type: "string" } }
+    type: "object", properties: { kind: { enum: ["tasks","task","sessions","memories","ideas"] }, task_capsule_id: { type: "string" } }
   }),
   tool("resume", "Build a durable resume packet for a Task Capsule without transcript copying.", {
     type: "object", required: ["task_capsule_id"], properties: { task_capsule_id: { type: "string" } }

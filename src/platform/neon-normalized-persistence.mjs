@@ -119,6 +119,14 @@ export function createNormalizedNeonPersistence(databaseUrl, { httpSql, clientFa
       return rows[0] ?? null;
     },
 
+    async principalPermissions({ tenantId, principalId }) {
+      const rows = await sql.query(`SELECT r.permission_set FROM command.principal_role_bindings b
+        JOIN command.roles r ON r.tenant_id=b.tenant_id AND r.role_id=b.role_id
+        JOIN command.principals p ON p.tenant_id=b.tenant_id AND p.principal_id=b.principal_id
+        WHERE b.tenant_id=$1 AND b.principal_id=$2 AND p.state='active'`, [tenantId, principalId]);
+      return [...new Set(rows.flatMap((row) => Array.isArray(row.permission_set) ? row.permission_set : []))];
+    },
+
     async loadTenant(tenantId) {
       const rows = await sql.query(loadSqlWithParity(), [tenantId]);
       const row = rows[0];
@@ -192,6 +200,18 @@ export function createNormalizedNeonPersistence(databaseUrl, { httpSql, clientFa
           [authSubjectReference, tenant.tenant_id, principal.principal_id]
         );
         if (binding.rowCount === 0) throw new SovereignError("auth_already_bound", "This identity already has a tenant. Reload to continue.", { status: 409 });
+      await client.query(
+        `WITH owner_role AS (
+           INSERT INTO command.roles (role_id,tenant_id,name,permission_set,created_at,updated_at)
+           VALUES ('rol_owner_' || md5($1),$1,'Owner','["*"]'::jsonb,now(),now())
+           ON CONFLICT (tenant_id,name) DO UPDATE SET permission_set=EXCLUDED.permission_set,updated_at=now()
+           RETURNING role_id
+         )
+         INSERT INTO command.principal_role_bindings (tenant_id,principal_id,role_id,granted_by_principal_id,created_at)
+         SELECT $1,$2,role_id,$2,now() FROM owner_role
+         ON CONFLICT (tenant_id,principal_id,role_id) DO NOTHING`,
+        [tenant.tenant_id, principal.principal_id]
+      );
         const state = store.exportState();
         await client.query(
           `INSERT INTO runtime.tenant_state_snapshots (tenant_id,state,version,state_hash)

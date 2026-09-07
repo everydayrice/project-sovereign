@@ -74,3 +74,32 @@ test("Trust recovery snapshots state, preserves history, and records a bounded i
   assert.equal(closed.risky_canonical_automation_paused, false);
   assert.equal(ctx.platform.intelligence.canonicalStatus({ tenantId: ctx.tenant.tenant_id }).current_canonical_revision, before.current_canonical_revision);
 });
+
+test("Recovery blocks overlapping automation, permits explicit human repair, and preserves the original findings", () => {
+  const { platform, tenant, principal } = fixture();
+  const base = { tenantId: tenant.tenant_id, principalId: principal.principal_id };
+  const machine = platform.command.createPrincipal({ tenantId: tenant.tenant_id, kind: "service", displayName: "Worker" });
+  const propose = (scope, requiresApproval = false) => platform.intelligence.proposeChangeSet({
+    ...base, title: "Reviewed fact", reason: "Evidence", scope, requiresApproval,
+    operations: [{ type: "add", record: { recordType: "fact", payload: { subject: "Example", value: 1 }, scope } }]
+  }).change_set.canonical_change_set_id;
+  const recovery = platform.recovery.start({ ...base, scope: { project: "alpha" } });
+  const findings = structuredClone(recovery.findings);
+  const changeSetId = propose({ project: "alpha" });
+  assert.throws(() => platform.intelligence.applyChangeSet({ ...base, changeSetId }), { code: "canonical_automation_paused" });
+  assert.throws(() => platform.intelligence.approveChangeSet({ ...base, principalId: machine.principal_id, changeSetId }), { code: "canonical_automation_paused" });
+  assert.equal(platform.intelligence.currentState(tenant.tenant_id).current_revision, 0);
+  platform.intelligence.approveChangeSet({ ...base, changeSetId });
+  const unrelated = propose({ project: "beta" });
+  platform.intelligence.applyChangeSet({ ...base, changeSetId: unrelated });
+  const broad = propose({});
+  assert.throws(() => platform.intelligence.applyChangeSet({ ...base, changeSetId: broad }), { code: "canonical_automation_paused" });
+  const completed = platform.recovery.complete({ ...base, recoverySessionId: recovery.recovery_session_id });
+  const { completion_review, ...original } = completed.findings;
+  assert.deepEqual(original, findings);
+  assert.equal(completion_review.canonical.current_canonical_revision, 2);
+  platform.intelligence.applyChangeSet({ ...base, changeSetId: broad });
+  const guarded = propose({}, true);
+  assert.throws(() => platform.intelligence.applyChangeSet({ ...base, changeSetId: guarded }), { code: "canonical_approval_required" });
+  assert.throws(() => platform.intelligence.approveChangeSet({ ...base, principalId: machine.principal_id, changeSetId: guarded }), { code: "canonical_approval_required" });
+});

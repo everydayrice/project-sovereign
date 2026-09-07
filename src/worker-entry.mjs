@@ -1,3 +1,4 @@
+import { authorizeGovernance } from "./auth/governance.mjs";
 import baseWorker from "./worker.mjs";
 import { createSovereignPlatform } from "./platform/sovereign-platform.mjs";
 import { createNeonPersistence } from "./platform/neon-persistence.mjs";
@@ -230,6 +231,7 @@ async function loadBoundPlatform({ request, authenticate, persistence }) {
   const auth = await authenticate(request);
   const binding = await persistence.resolveAuthBinding(auth.authSubject);
   if (!binding) throw new SovereignError("onboarding_required", "Create your Sovereign tenant before using protected Sovereign capabilities.", { status: 409 });
+  await authorizeGovernance({ request, persistence, tenantId: binding.tenant_id, principalId: binding.principal_id });
   const loaded = await persistence.loadTenant(binding.tenant_id);
   const platform = createSovereignPlatform({ store: loaded.store });
   platform.command.requireActiveTenant(binding.tenant_id);

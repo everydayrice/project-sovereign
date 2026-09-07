@@ -25,15 +25,19 @@ export function createIdeaStore(databaseUrl, { httpSql } = {}) {
       const rows = await sql.query(
         `INSERT INTO continuity.ideas
          (idea_id,tenant_id,owner_principal_id,title,description,state,tags,source_references,intelligence_references,task_capsule_id,revision,created_at,updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9::jsonb,$10,1,now(),now())
+         SELECT $1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9::jsonb,$10,1,now(),now()
+          WHERE EXISTS (SELECT 1 FROM command.principals WHERE tenant_id=$2 AND principal_id=$3 AND state='active')
+            AND ($10::text IS NULL OR EXISTS (SELECT 1 FROM continuity.task_capsules WHERE tenant_id=$2 AND task_capsule_id=$10))
          RETURNING idea_id,tenant_id,owner_principal_id,title,description,state,tags,source_references,intelligence_references,task_capsule_id,revision,created_at,updated_at`,
         [newId("idea"), tenantId, ownerPrincipalId, title.trim(), description?.trim() || null, state,
           JSON.stringify(normalizeArray(tags)), JSON.stringify(normalizeArray(sourceReferences)), JSON.stringify(normalizeArray(intelligenceReferences)), taskCapsuleId]
       );
+      if (!rows.length) throw new SovereignError("idea_reference_not_found", "Idea owner or task was not found in this tenant.", { status: 404 });
       return rows[0];
     },
 
     async update({ tenantId, ideaId, title, description, state, tags, sourceReferences, intelligenceReferences, taskCapsuleId }) {
+      if (title !== undefined) requireCondition(typeof title === "string" && title.trim(), "idea_title_required", "Idea title is required.");
       if (state !== undefined) requireCondition(IDEA_STATES.has(state), "idea_state_invalid", "Idea state is invalid.");
       const rows = await sql.query(
         `UPDATE continuity.ideas
@@ -46,6 +50,7 @@ export function createIdeaStore(databaseUrl, { httpSql } = {}) {
                 task_capsule_id=CASE WHEN $13::boolean THEN $14 ELSE task_capsule_id END,
                 revision=revision+1,updated_at=now()
           WHERE tenant_id=$1 AND idea_id=$2
+            AND (NOT $13::boolean OR $14::text IS NULL OR EXISTS (SELECT 1 FROM continuity.task_capsules WHERE tenant_id=$1 AND task_capsule_id=$14))
         RETURNING idea_id,tenant_id,owner_principal_id,title,description,state,tags,source_references,intelligence_references,task_capsule_id,revision,created_at,updated_at`,
         [tenantId, ideaId, title?.trim() || null, description !== undefined, description?.trim() || null, state ?? null,
           tags !== undefined, JSON.stringify(normalizeArray(tags)), sourceReferences !== undefined, JSON.stringify(normalizeArray(sourceReferences)),

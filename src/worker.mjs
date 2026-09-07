@@ -1,3 +1,4 @@
+import { authorizeGovernance } from "./auth/governance.mjs";
 import { createHttpGateway } from "./gateway/http-gateway.mjs";
 import { createSovereignPlatform } from "./platform/sovereign-platform.mjs";
 import { createNeonPersistence } from "./platform/neon-persistence.mjs";
@@ -47,12 +48,13 @@ export default {
         authenticate,
         files,
         health: async () => productionHealth({ env, persistence }),
-        prepareRequest: async ({ auth }) => {
+        prepareRequest: async ({ auth, request }) => {
           if (!persistence) throw new SovereignError("database_not_configured", "DATABASE_URL is required for the production Sovereign runtime.", { status: 503 });
           const binding = await persistence.resolveAuthBinding(auth.authSubject);
           if (!binding) {
             return { platform: createSovereignPlatform(), auth: { ...auth, onboarding: true }, version: null, persistence };
           }
+          await authorizeGovernance({ request, persistence, tenantId: binding.tenant_id, principalId: binding.principal_id });
           const loaded = await persistence.loadTenant(binding.tenant_id);
           const platform = createSovereignPlatform({ store: loaded.store });
           platform.command.requireActiveTenant(binding.tenant_id);

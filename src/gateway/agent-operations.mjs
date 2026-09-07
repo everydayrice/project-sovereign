@@ -115,7 +115,7 @@ export async function executeAgentOperation({ name, args = {}, auth, persistence
   } else if (name === "check_out") {
     payload = platform.traffic.checkout({ ...base, trafficSessionId: args.traffic_session_id, state: args.state ?? "completed", outcome: args.outcome ?? {}, nextAction: args.next_action, blockers: args.blockers ?? [], artifactReferences: args.artifact_references ?? [] });
   } else if (name === "canonical_propose") {
-    payload = platform.intelligence.proposeChangeSet({ ...base, title: args.title, reason: args.reason, operations: args.operations, requiresApproval: args.requires_approval !== false, initiator: args.initiator ?? "agent", sourceIds: args.source_ids ?? [], provenance: args.provenance ?? [], confidence: args.confidence ?? "medium" });
+    payload = platform.intelligence.proposeChangeSet({ ...base, title: args.title, reason: args.reason, operations: args.operations, requiresApproval: true, initiator: "agent", scope: args.scope ?? {}, sourceIds: args.source_ids ?? [], provenance: args.provenance ?? [], confidence: args.confidence ?? "medium" });
   }
 
   if (definition.mutates) {

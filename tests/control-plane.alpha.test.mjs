@@ -17,7 +17,8 @@ function checkIn(ctx, { conversation, surface = "chatgpt", surfaceType = "chat",
   return ctx.platform.traffic.checkIn({
     tenantId: ctx.tenant.tenant_id, principalId: ctx.principal.principal_id,
     actor: { provider: { key: "openai", displayName: "OpenAI", accountReference: "owner-account" }, surface: { key: surface, displayName: surface, type: surfaceType }, externalSessionId: conversation, modelMetadata: { model: "same-model" } },
-    objective, taskCapsuleId, parentTrafficSessionId, contextAppetite
+    objective, taskCapsuleId, parentTrafficSessionId, contextAppetite,
+    permissions: ["orientation:read", "continuity:read", "intelligence:read", "traffic:read"]
   });
 }
 

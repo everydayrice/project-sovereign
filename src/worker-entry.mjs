@@ -32,6 +32,7 @@ export default {
           persistence,
           retrieval,
           authenticateService,
+          ideaStore,
           allowedOrigins: parseOrigins(env.MCP_ALLOWED_ORIGINS)
         }).fetch(request);
       }

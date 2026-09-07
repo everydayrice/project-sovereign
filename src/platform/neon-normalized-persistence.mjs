@@ -120,12 +120,13 @@ export function createNormalizedNeonPersistence(databaseUrl, { httpSql, clientFa
     },
 
     async loadTenant(tenantId) {
-      const rows = await sql.query(LOAD_STATE_SQL, [tenantId]);
+      const rows = await sql.query(loadSqlWithParity(), [tenantId]);
       const row = rows[0];
       if (!row || row.runtimeVersion === null || row.runtimeVersion === undefined) {
         throw new SovereignError("tenant_state_not_found", "Durable Sovereign tenant state was not found.", { status: 503 });
       }
       const state = hydrateState(row);
+      assertSnapshotCovered(state, row.snapshotParity);
       return {
         store: new InMemorySovereignStore().importState(state),
         version: Number(row.runtimeVersion),
@@ -133,7 +134,7 @@ export function createNormalizedNeonPersistence(databaseUrl, { httpSql, clientFa
       };
     },
 
-    async saveTenant({ tenantId, store, expectedVersion }) {
+    async saveTenant({ tenantId, store, expectedVersion, sourceChunkReplacements = [] }) {
       const client = makeClient();
       await client.connect();
       try {
@@ -152,8 +153,9 @@ export function createNormalizedNeonPersistence(databaseUrl, { httpSql, clientFa
         }
 
         const changes = store.exportChanges();
-        await persistChanges(client, tenantId, changes);
-        if (!Object.keys(changes).length) {
+        await persistChanges(client, tenantId, changes, store);
+        for (const replacement of sourceChunkReplacements) await replaceChunks(client, { ...replacement, tenantId });
+        if (!Object.keys(changes).length && !sourceChunkReplacements.length) {
           await client.query("COMMIT");
           return { tenant_id: tenantId, version: currentVersion, changed_collections: [] };
         }
@@ -180,13 +182,16 @@ export function createNormalizedNeonPersistence(databaseUrl, { httpSql, clientFa
       await client.connect();
       try {
         await client.query("BEGIN");
-        await persistChanges(client, tenant.tenant_id, store.exportChanges());
-        await client.query(
+        await persistChanges(client, tenant.tenant_id, store.exportChanges(), store);
+        const binding = await client.query(
           `INSERT INTO runtime.auth_bindings (auth_subject_reference, tenant_id, principal_id)
            VALUES ($1,$2,$3)
-           ON CONFLICT (auth_subject_reference) DO NOTHING`,
+           ON CONFLICT (auth_subject_reference) DO UPDATE SET auth_subject_reference=EXCLUDED.auth_subject_reference
+           WHERE runtime.auth_bindings.tenant_id=EXCLUDED.tenant_id
+           RETURNING tenant_id`,
           [authSubjectReference, tenant.tenant_id, principal.principal_id]
         );
+        if (binding.rowCount === 0) throw new SovereignError("auth_already_bound", "This identity already has a tenant. Reload to continue.", { status: 409 });
         const state = store.exportState();
         await client.query(
           `INSERT INTO runtime.tenant_state_snapshots (tenant_id,state,version,state_hash)
@@ -210,22 +215,7 @@ export function createNormalizedNeonPersistence(databaseUrl, { httpSql, clientFa
       await client.connect();
       try {
         await client.query("BEGIN");
-        const owned = await client.query(
-          "SELECT 1 FROM intelligence.source_items WHERE tenant_id=$1 AND source_id=$2 AND source_item_id=$3",
-          [tenantId, sourceId, sourceItemId]
-        );
-        if (!(owned.rows?.length ?? owned.length)) throw new SovereignError("source_item_not_found", "Source item was not found.", { status: 404 });
-        await client.query("DELETE FROM intelligence.source_chunks WHERE tenant_id=$1 AND source_item_id=$2", [tenantId, sourceItemId]);
-        for (const chunk of chunks) {
-          await client.query(
-            `INSERT INTO intelligence.source_chunks
-             (source_chunk_id,tenant_id,source_id,source_item_id,ordinal,heading,chunk_text,content_hash,parser_key,parser_version,metadata)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb)`,
-            [chunk.source_chunk_id, tenantId, sourceId, sourceItemId, chunk.ordinal, chunk.heading ?? null,
-              chunk.chunk_text, chunk.content_hash ?? null, chunk.parser_key, chunk.parser_version,
-              JSON.stringify(chunk.metadata ?? {})]
-          );
-        }
+        await replaceChunks(client, { tenantId, sourceId, sourceItemId, chunks });
         await client.query("COMMIT");
         return { source_id: sourceId, source_item_id: sourceItemId, chunk_count: chunks.length };
       } catch (error) {
@@ -250,8 +240,9 @@ export function createNormalizedNeonPersistence(databaseUrl, { httpSql, clientFa
                   sc.ordinal
              FROM intelligence.source_chunks sc
              JOIN intelligence.sources s ON s.source_id=sc.source_id AND s.tenant_id=sc.tenant_id
+             JOIN intelligence.source_items si ON si.source_item_id=sc.source_item_id AND si.tenant_id=sc.tenant_id AND si.source_id=sc.source_id
              CROSS JOIN q
-            WHERE sc.tenant_id=$1
+            WHERE sc.tenant_id=$1 AND si.privacy_state='included'
               AND ($3::text IS NULL OR sc.source_id=$3)
               AND sc.search_vector @@ q.value
          ),
@@ -268,6 +259,8 @@ export function createNormalizedNeonPersistence(databaseUrl, { httpSql, clientFa
              JOIN intelligence.record_revisions rr ON rr.intelligence_record_id=r.intelligence_record_id AND rr.revision=r.current_revision
              CROSS JOIN q
             WHERE r.tenant_id=$1 AND r.state='active'
+              AND ($3::text IS NULL OR r.source_ids ? $3)
+              AND rr.tenant_id=r.tenant_id
               AND to_tsvector('simple',COALESCE(rr.after_snapshot,rr.content)::text) @@ q.value
          )
          SELECT * FROM (SELECT * FROM source_hits UNION ALL SELECT * FROM canonical_hits) hits
@@ -283,7 +276,8 @@ export function createNormalizedNeonPersistence(databaseUrl, { httpSql, clientFa
                 NULL::text AS record_type, 0::real AS rank, sc.metadata, sc.ordinal
            FROM intelligence.source_chunks sc
            JOIN intelligence.sources s ON s.source_id=sc.source_id AND s.tenant_id=sc.tenant_id
-          WHERE sc.tenant_id=$1 AND ($3::text IS NULL OR sc.source_id=$3)
+             JOIN intelligence.source_items si ON si.source_item_id=sc.source_item_id AND si.tenant_id=sc.tenant_id AND si.source_id=sc.source_id
+          WHERE sc.tenant_id=$1 AND si.privacy_state='included' AND ($3::text IS NULL OR sc.source_id=$3)
             AND (sc.chunk_text ILIKE '%' || $2 || '%' OR COALESCE(sc.heading,'') ILIKE '%' || $2 || '%' OR s.display_name ILIKE '%' || $2 || '%')
           ORDER BY sc.updated_at DESC, sc.ordinal
           LIMIT $4`,
@@ -309,8 +303,39 @@ export function createNormalizedNeonPersistence(databaseUrl, { httpSql, clientFa
   };
 }
 
-async function persistChanges(client, tenantId, changes) {
-  for (const collection of Object.keys(TABLES)) {
+// During the temporary bridge period, compare only IDs and freshness markers.
+// Domain content always loads from normalized tables. A write by the old
+// deployed Worker after migration must fail closed, never silently disappear.
+function loadSqlWithParity() {
+  const summaries = Object.keys(TABLES).map(collection => {
+    const key = domainKey(collection);
+    return `'${collection}', (SELECT COALESCE(jsonb_agg(jsonb_build_object('id',e->'${key}','updated_at',e->'updated_at','revision',${'revision' in TABLES[collection].transform({}) ? "e->'revision'" : 'NULL'})), '[]'::jsonb) FROM jsonb_array_elements(COALESCE(s.state->'${collection}','[]'::jsonb)) e)`;
+  });
+  const parity = `(SELECT jsonb_build_object(${summaries.join(",")}) FROM runtime.tenant_state_snapshots s WHERE s.tenant_id=$1)`;
+  return LOAD_STATE_SQL.replace('AS "runtimeVersion";', `AS "runtimeVersion", ${parity} AS "snapshotParity";`);
+}
+
+function domainKey(collection) {
+  return ({ canonicalRecords: "canonical_record_id", canonicalRecordRevisions: "canonical_record_revision_id" })[collection] ?? TABLES[collection].keys[0];
+}
+
+function assertSnapshotCovered(state, parity = {}) {
+  for (const [collection, expected] of Object.entries(parity ?? {})) {
+    const actual = new Map((state[collection] ?? []).map(item => [item[domainKey(collection)],item]));
+    for (const marker of expected) {
+      const item = actual.get(marker.id);
+      if (!item || (marker.updated_at && new Date(marker.updated_at).getTime() > new Date(item.updated_at ?? 0).getTime()) || Number(marker.revision ?? 0) > Number(item.revision ?? 0)) {
+        throw new SovereignError("normalized_cutover_incomplete", "The rollback mirror contains newer state. Reconcile the migration before continuing.", { status: 503, details: { collection } });
+      }
+    }
+  }
+}
+
+async function persistChanges(client, tenantId, changes, store) {
+  // Tasks must precede sessions/checkpoints; Change Sets must precede runs
+  // that reference them. Use the same order for bootstrap and mutations.
+  const first = ["tenants", "principals", "workspaces", "providers", "surfaces", "actorInstances", "taskCapsules", "canonicalChangeSets"];
+  for (const collection of [...first, ...Object.keys(TABLES).filter(name => !first.includes(name))]) {
     const items = changes[collection];
     if (!items?.length) continue;
     const config = TABLES[collection];
@@ -319,15 +344,38 @@ async function persistChanges(client, tenantId, changes) {
         throw new SovereignError("tenant_persistence_mismatch", `Refusing to persist ${collection} outside the authenticated tenant.`, { status: 403 });
       }
       const row = config.transform(item);
+      validateReferences(row, config, tenantId, store);
       const columns = Object.keys(row).filter((column) => row[column] !== undefined);
       const values = columns.map((column) => serialize(row[column], config.jsonColumns.has(column)));
       const placeholders = columns.map((_, index) => `$${index + 1}`);
       const conflict = config.keys.join(",");
       const updates = columns.filter((column) => !config.keys.includes(column)).map((column) => `${column}=EXCLUDED.${column}`);
-      const text = `INSERT INTO ${config.table} (${columns.join(",")}) VALUES (${placeholders.join(",")}) ON CONFLICT (${conflict}) DO UPDATE SET ${updates.join(",")}`;
-      await client.query(text, values);
+      const tenantGuard = config.tenantScoped ? ` WHERE ${config.table}.tenant_id=EXCLUDED.tenant_id` : "";
+      const text = `INSERT INTO ${config.table} (${columns.join(",")}) VALUES (${placeholders.join(",")}) ON CONFLICT (${conflict}) DO UPDATE SET ${updates.join(",")}${tenantGuard} RETURNING 1`;
+      const saved = await client.query(text, values);
+      if (saved.rowCount === 0) throw new SovereignError("tenant_persistence_mismatch", `Refusing to overwrite ${collection} owned by another tenant.`, { status: 403 });
     }
   }
+}
+
+function validateReferences(row, config, tenantId, store) {
+  const references = {
+    provider_id: "providers", surface_id: "surfaces", resource_id: "resources",
+    task_capsule_id: "taskCapsules", workspace_id: "workspaces", parent_workspace_id: "workspaces",
+    traffic_session_id: "trafficSessions", parent_traffic_session_id: "trafficSessions", from_traffic_session_id: "trafficSessions",
+    source_id: "sources", source_item_id: "sourceItems", initialization_run_id: "initializationRuns",
+    canonical_change_set_id: "canonicalChangeSets", change_set_id: "canonicalChangeSets", revert_of_change_set_id: "canonicalChangeSets",
+    intelligence_record_id: "canonicalRecords", target_record_id: "canonicalRecords", record_id: "canonicalRecords", supersedes_record_id: "canonicalRecords",
+    canonical_snapshot_checkpoint_id: "canonicalCheckpoints", failure_event_id: "failureEvents",
+    extension_installation_id: "extensionInstallations"
+  };
+  for (const [column, value] of Object.entries(row)) {
+    if (value == null || config.keys.includes(column)) continue;
+    const collection = /(?:^|_)principal_id$/.test(column) ? "principals"
+      : /(?:^|_)actor_instance_id$/.test(column) ? "actorInstances" : references[column];
+    if (collection) store.requireTenant(collection, value, tenantId);
+  }
+  for (const sourceId of row.source_ids ?? []) store.requireTenant("sources", sourceId, tenantId);
 }
 
 function hydrateState(row) {
@@ -463,4 +511,23 @@ function hashKey(value) {
     hash = Math.imul(hash, 16777619);
   }
   return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+async function replaceChunks(client, { tenantId, sourceId, sourceItemId, chunks }) {
+  const owned = await client.query(
+    "SELECT 1 FROM intelligence.source_items WHERE tenant_id=$1 AND source_id=$2 AND source_item_id=$3",
+    [tenantId, sourceId, sourceItemId]
+  );
+  if (!(owned.rows?.length ?? owned.length)) throw new SovereignError("source_item_not_found", "Source item was not found.", { status: 404 });
+  await client.query("DELETE FROM intelligence.source_chunks WHERE tenant_id=$1 AND source_item_id=$2", [tenantId, sourceItemId]);
+  for (const chunk of chunks) {
+    await client.query(
+      `INSERT INTO intelligence.source_chunks
+       (source_chunk_id,tenant_id,source_id,source_item_id,ordinal,heading,chunk_text,content_hash,parser_key,parser_version,metadata)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb)`,
+      [chunk.source_chunk_id, tenantId, sourceId, sourceItemId, chunk.ordinal, chunk.heading ?? null,
+        chunk.chunk_text, chunk.content_hash ?? null, chunk.parser_key, chunk.parser_version,
+        JSON.stringify(chunk.metadata ?? {})]
+    );
+  }
 }

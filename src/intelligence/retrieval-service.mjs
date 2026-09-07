@@ -6,7 +6,7 @@ export class RetrievalService {
   }
 
   async search({ tenantId, query, sourceId, limit = 12 }) {
-    requireCondition(query?.trim(), "search_query_required", "Search query is required.");
+    requireCondition(typeof query === "string" && query.trim(), "search_query_required", "Search query is required.");
     const results = await this.persistence.searchTenant({ tenantId, query, sourceId, limit });
     return {
       query: query.trim(),
@@ -16,10 +16,14 @@ export class RetrievalService {
   }
 
   async ask({ tenantId, query, sourceId, limit = 8 }) {
-    const search = await this.search({ tenantId, query, sourceId, limit });
+    requireCondition(typeof query === "string" && query.trim(), "search_query_required", "A question is required.");
+    // Natural questions contain words that need not appear in the evidence.
+    // Keep Search's literal query semantics; normalize only Ask's retrieval.
+    const retrievalQuery = meaningfulTerms(query).join(" ") || query.trim();
+    const search = await this.search({ tenantId, query: retrievalQuery, sourceId, limit });
     const answer = synthesizeExtractiveAnswer(query, search.results);
     return {
-      query: search.query,
+      query: query.trim(),
       answer: answer.text,
       confidence: answer.confidence,
       evidence: answer.evidence,
@@ -79,7 +83,7 @@ export function synthesizeExtractiveAnswer(query, results) {
 
 function meaningfulTerms(query) {
   const stop = new Set(["the","a","an","is","are","was","were","what","which","who","when","where","why","how","does","do","did","our","we","i","of","to","for","in","on","and","or","about","current","currently"]);
-  return [...new Set(String(query ?? "").toLowerCase().match(/[a-z0-9][a-z0-9_.-]*/g) ?? [])].filter((term) => term.length > 1 && !stop.has(term));
+  return [...new Set(String(query ?? "").toLowerCase().replace(/['’]s\b/g, "").match(/[\p{L}\p{N}][\p{L}\p{N}_.-]*/gu) ?? [])].filter((term) => term.length > 1 && !stop.has(term));
 }
 
 function sentenceScore(sentence, terms) {

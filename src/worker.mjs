@@ -54,8 +54,11 @@ export default {
             return { platform: createSovereignPlatform(), auth: { ...auth, onboarding: true }, version: null, persistence };
           }
           const loaded = await persistence.loadTenant(binding.tenant_id);
+          const platform = createSovereignPlatform({ store: loaded.store });
+          platform.command.requireActiveTenant(binding.tenant_id);
+          platform.command.requirePrincipal(binding.tenant_id, binding.principal_id);
           return {
-            platform: createSovereignPlatform({ store: loaded.store }),
+            platform,
             auth: { ...auth, tenantId: binding.tenant_id, principalId: binding.principal_id, onboarding: false },
             version: loaded.version,
             persistence
@@ -100,6 +103,8 @@ async function handleBrowserUpload({ request, authenticate, persistence, files }
   const { binding } = await requireBoundUser({ request, authenticate, persistence });
   const loaded = await persistence.loadTenant(binding.tenant_id);
   const platform = createSovereignPlatform({ store: loaded.store });
+  platform.command.requireActiveTenant(binding.tenant_id);
+  platform.command.requirePrincipal(binding.tenant_id, binding.principal_id);
   const form = await request.formData();
   const file = form.get("file");
   if (!file || typeof file.stream !== "function" || typeof file.name !== "string") {

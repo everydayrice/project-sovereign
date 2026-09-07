@@ -149,8 +149,6 @@ async function processStoredSource({ request, sourceId, authenticate, persistenc
     mimeType: item.mime_type
   });
 
-  await persistence.replaceSourceChunks({ tenantId, sourceId, sourceItemId: item.source_item_id, chunks: ingestion.chunks });
-
   const run = platform.initialization.start({ tenantId, principalId, sourceIds: [sourceId], mode: "initialize" });
   const savedCandidates = [];
   for (const candidate of ingestion.candidates) {
@@ -192,7 +190,9 @@ async function processStoredSource({ request, sourceId, authenticate, persistenc
     currentness: "current"
   });
   const completed = platform.initialization.complete({ tenantId, runId: run.initialization_run_id });
-  const save = await persistence.saveTenant({ tenantId, store: platform.store, expectedVersion: loaded.version });
+  const save = await persistence.saveTenant({ tenantId, store: platform.store, expectedVersion: loaded.version,
+    sourceChunkReplacements: [{ sourceId, sourceItemId: item.source_item_id, chunks: ingestion.chunks }]
+  });
 
   return {
     state: "ready",
@@ -240,7 +240,10 @@ async function loadBoundPlatform({ request, authenticate, persistence }) {
   const binding = await persistence.resolveAuthBinding(auth.authSubject);
   if (!binding) throw new SovereignError("onboarding_required", "Create your Sovereign tenant before using protected Sovereign capabilities.", { status: 409 });
   const loaded = await persistence.loadTenant(binding.tenant_id);
-  return { auth, binding, loaded, platform: createSovereignPlatform({ store: loaded.store }) };
+  const platform = createSovereignPlatform({ store: loaded.store });
+  platform.command.requireActiveTenant(binding.tenant_id);
+  platform.command.requirePrincipal(binding.tenant_id, binding.principal_id);
+  return { auth, binding, loaded, platform };
 }
 
 async function injectAskSovereign(response) {

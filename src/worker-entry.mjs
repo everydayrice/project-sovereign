@@ -48,7 +48,7 @@ export default {
         const { binding, platform } = await loadBoundPlatform({ request, authenticate, persistence });
         const credentials = await credentialStore.list({ tenantId: binding.tenant_id, requesterPrincipalId: binding.principal_id });
         const tenant = platform.store.requireTenant("tenants", binding.tenant_id, binding.tenant_id);
-        return html(serviceCredentialsPageHtml({ commandName: tenant.command_display_name, credentials, scopes: SERVICE_SCOPES }));
+        return html(serviceCredentialsPageHtml({ commandName: tenant.command_display_name, credentials, scopes: SERVICE_SCOPES, installations: platform.extensions.list(binding.tenant_id) }));
       }
 
       if (request.method === "GET" && url.pathname === "/v1/command/service-credentials") {
@@ -67,7 +67,8 @@ export default {
           createdByPrincipalId: binding.principal_id,
           displayName: body.display_name,
           scopes: body.scopes ?? [],
-          expiresAt: body.expires_at ?? null
+          expiresAt: body.expires_at ?? null,
+          extensionId: body.extension_id ?? null
         });
         return Response.json(created, { status: 201, headers: { "cache-control": "no-store" } });
       }

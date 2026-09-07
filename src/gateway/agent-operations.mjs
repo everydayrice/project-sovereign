@@ -19,6 +19,8 @@ export const AGENT_OPERATIONS = Object.freeze({
   resource_release: op(["traffic:write"], true),
   heartbeat: op(["traffic:write"], true),
   check_out: op(["traffic:write", "continuity:write"], true),
+  extension_events: op(["continuity:read"], false),
+  extension_acknowledge: op(["continuity:read"], true),
   canonical_propose: op(["intelligence:propose"], true)
 });
 
@@ -32,7 +34,11 @@ export async function executeAgentOperation({ name, args = {}, auth, persistence
   const base = { tenantId: auth.tenantId, principalId: auth.principalId };
   let payload;
 
-  if (name === "check_in") {
+  if (name === "extension_events" || name === "extension_acknowledge") {
+    if (!auth.extensionId) throw new SovereignError("extension_identity_required", "An extension-bound credential is required.", { status: 403 });
+    payload = name === "extension_events" ? { events: platform.extensions.events({ tenantId: auth.tenantId, extensionId: auth.extensionId }) }
+      : platform.extensions.acknowledge({ tenantId: auth.tenantId, extensionId: auth.extensionId, eventId: args.event_id });
+  } else if (name === "check_in") {
     payload = platform.traffic.checkIn({
       ...base,
       actor: normalizedActor(args.actor, auth),
@@ -118,6 +124,7 @@ export async function executeAgentOperation({ name, args = {}, auth, persistence
     payload = platform.intelligence.proposeChangeSet({ ...base, title: args.title, reason: args.reason, operations: args.operations, requiresApproval: true, initiator: "agent", scope: args.scope ?? {}, sourceIds: args.source_ids ?? [], provenance: args.provenance ?? [], confidence: args.confidence ?? "medium" });
   }
 
+  if (["task_create", "task_update", "task_checkpoint"].includes(name)) platform.extensions.publish({ tenantId: auth.tenantId, eventType: { task_create: "task.created", task_update: "task.updated", task_checkpoint: "continuity.checkpoint" }[name], subjectType: name === "task_checkpoint" ? "checkpoint" : "task", subjectId: payload.task_capsule_id ?? payload.traffic_checkpoint_id });
   if (definition.mutates) {
     const receipt = await persistence.saveTenant({ tenantId: auth.tenantId, store: platform.store, expectedVersion: loaded.version });
     return { data: payload, persistence: receipt };

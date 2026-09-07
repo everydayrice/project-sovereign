@@ -39,10 +39,21 @@ export function createServiceCredentialStore(databaseUrl, { httpSql, clientFacto
   return {
     assertManagePermission,
 
-    async create({ tenantId, createdByPrincipalId, displayName, scopes = [], expiresAt = null }) {
+    async create({ tenantId, createdByPrincipalId, displayName, scopes = [], expiresAt = null, extensionId = null }) {
       await assertManagePermission(tenantId, createdByPrincipalId);
       requireCondition(displayName?.trim(), "service_identity_name_required", "Service identity display name is required.");
       const normalizedScopes = normalizeScopes(scopes);
+      let installationId = null;
+      let extensionGrantId = null;
+      if (extensionId) {
+        const rows = await sql.query(`SELECT i.extension_installation_id,g.extension_grant_id,g.granted_scopes FROM extensions.installations i
+          JOIN extensions.grants g ON g.tenant_id=i.tenant_id AND g.extension_installation_id=i.extension_installation_id
+          WHERE i.tenant_id=$1 AND i.extension_id=$2 AND i.state='active' AND g.state='active'`, [tenantId, extensionId]);
+        const grant = rows.find(row => normalizedScopes.every(scope => row.granted_scopes.includes(scope)));
+        if (!grant) throw new SovereignError("extension_scope_denied", "Credential scopes must be within the active extension grant.", { status: 403 });
+        installationId = grant.extension_installation_id;
+        extensionGrantId = grant.extension_grant_id;
+      }
       const token = createToken();
       const tokenHash = await sha256Hex(token);
       const tokenPrefix = token.slice(0, 18);
@@ -56,8 +67,8 @@ export function createServiceCredentialStore(databaseUrl, { httpSql, clientFacto
         await client.query(
           `INSERT INTO command.principals
            (principal_id,tenant_id,kind,display_name,state,auth_subject_reference,metadata,revision,created_at,updated_at)
-           VALUES ($1,$2,'service',$3,'active',NULL,$4::jsonb,1,$5,$5)`,
-          [principalId, tenantId, displayName.trim(), JSON.stringify({ service_credential_id: credentialId }), timestamp]
+           VALUES ($1,$2,$6,$3,'active',NULL,$4::jsonb,1,$5,$5)`,
+          [principalId, tenantId, displayName.trim(), JSON.stringify({ service_credential_id: credentialId, ...(extensionId ? { extension_id: extensionId, extension_installation_id: installationId, extension_grant_id: extensionGrantId } : {}) }), timestamp, extensionId ? "extension" : "service"]
         );
         await client.query(
           `INSERT INTO command.service_credentials
@@ -94,7 +105,7 @@ export function createServiceCredentialStore(databaseUrl, { httpSql, clientFacto
       const tokenHash = await sha256Hex(token);
       const rows = await sql.query(
         `SELECT c.service_credential_id,c.tenant_id,c.principal_id,c.display_name,c.scopes,c.state,c.expires_at,
-                p.display_name AS principal_display_name,p.state AS principal_state
+                p.display_name AS principal_display_name,p.state AS principal_state,p.kind AS principal_kind,p.metadata AS principal_metadata
            FROM command.service_credentials c
            JOIN command.principals p ON p.principal_id=c.principal_id AND p.tenant_id=c.tenant_id
           WHERE c.token_hash=$1
@@ -103,9 +114,18 @@ export function createServiceCredentialStore(databaseUrl, { httpSql, clientFacto
       );
       const credential = rows[0];
       if (!credential || credential.state !== "active" || credential.principal_state !== "active") return null;
+      if (credential.principal_kind === "extension") {
+        const rows = await sql.query(`SELECT 1 FROM extensions.installations i JOIN extensions.grants g
+          ON g.tenant_id=i.tenant_id AND g.extension_installation_id=i.extension_installation_id
+          WHERE i.tenant_id=$1 AND i.extension_installation_id=$2 AND i.extension_id=$3
+            AND i.state='active' AND g.state='active' AND g.granted_scopes @> $4::jsonb AND g.extension_grant_id=$5`,
+          [credential.tenant_id, credential.principal_metadata?.extension_installation_id, credential.principal_metadata?.extension_id, JSON.stringify(credential.scopes), credential.principal_metadata?.extension_grant_id]);
+        if (!rows.length) return null;
+      }
       if (credential.expires_at && new Date(credential.expires_at).getTime() <= Date.now()) return null;
       void sql.query("UPDATE command.service_credentials SET last_used_at=now(),updated_at=now() WHERE service_credential_id=$1", [credential.service_credential_id]).catch(() => {});
       return {
+        extensionId: credential.principal_metadata?.extension_id ?? null,
         serviceCredentialId: credential.service_credential_id,
         tenantId: credential.tenant_id,
         principalId: credential.principal_id,
@@ -165,6 +185,7 @@ export function createServiceAuthenticator({ credentialStore }) {
     return {
       tenantId: resolved.tenantId,
       principalId: resolved.principalId,
+      extensionId: resolved.extensionId ?? null,
       serviceCredentialId: resolved.serviceCredentialId,
       permissions: resolved.scopes,
       service: true,

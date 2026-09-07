@@ -68,6 +68,13 @@ async function route({ request, url, auth, platform, files }) {
   if (request.method === "GET" && path === "/v1/console/snapshot") return json(buildConsoleSnapshot({ platform, tenantId: auth.tenantId }));
   const consolePage = /^\/console(?:\/(home|command|intelligence|control-plane|continuity|sources|integrations|extensions|audit))?$/.exec(path);
   if (request.method === "GET" && consolePage) return html(consoleShellHtml(buildConsoleSnapshot({ platform, tenantId: auth.tenantId }), consolePage[1] ?? "home"));
+  if (request.method === "GET" && path === "/v1/extensions") return json({ installations: platform.extensions.list(auth.tenantId) });
+  if (request.method === "POST" && path === "/v1/extensions/install") { const body = await bodyJson(request); return json(platform.extensions.install({ ...base, manifest: body.manifest, grantedScopes: body.granted_scopes ?? [] }), 201); }
+  const extensionAction = /^\/v1\/extensions\/([^/]+)\/(enable|disable|revoke|uninstall)$/.exec(path);
+  if (request.method === "POST" && extensionAction) {
+    const args = { ...base, extensionId: extensionAction[1] };
+    return json(["enable", "disable"].includes(extensionAction[2]) ? platform.extensions.setEnabled({ ...args, enabled: extensionAction[2] === "enable" }) : platform.extensions[extensionAction[2]](args));
+  }
   if (request.method === "GET" && path === "/v1/command/workspaces") return json({ workspaces: command.listWorkspaces(auth.tenantId) });
   if (request.method === "POST" && path === "/v1/command/workspaces") { const body = await bodyJson(request); return json({ workspace: command.createWorkspace({ ...base, slug: body.slug, displayName: body.display_name, parentWorkspaceId: body.parent_workspace_id, settings: body.settings ?? {} }) }, 201); }
 

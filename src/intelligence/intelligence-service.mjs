@@ -53,7 +53,7 @@ export class IntelligenceService {
   approveChangeSet({ tenantId, principalId, changeSetId }) {
     const changeSet = this.requireChangeSet(tenantId, changeSetId);
     if (!["pending_approval", "ready"].includes(changeSet.state)) throw new SovereignError("change_set_not_pending", "Canonical Change Set is not available for approval.", { status: 409 });
-    return this.applyChangeSet({ tenantId, principalId, changeSetId });
+    return this.applyChangeSet({ tenantId, principalId, changeSetId, explicitApproval: true });
   }
 
   rejectChangeSet({ tenantId, principalId, changeSetId, reason }) {
@@ -65,15 +65,28 @@ export class IntelligenceService {
     }));
   }
 
-  applyChangeSet({ tenantId, principalId, changeSetId }) {
+  applyChangeSet({ tenantId, principalId, changeSetId, explicitApproval = false }) {
     const changeSet = this.requireChangeSet(tenantId, changeSetId);
     if (!["pending_approval", "ready"].includes(changeSet.state)) throw new SovereignError("change_set_unavailable", "Canonical Change Set cannot be applied.", { status: 409 });
+    const operations = this.changeOperations(tenantId, changeSetId);
+    const principal = this.store.requireTenant("principals", principalId, tenantId);
+    const humanReview = explicitApproval && principal.kind === "human" && principal.state === "active";
+    if (changeSet.requires_approval && !humanReview) {
+      throw new SovereignError("canonical_approval_required", "A human must explicitly approve this canonical change.", { status: 403 });
+    }
+    const affectedScopes = [changeSet.scope ?? {}, ...operations.flatMap((operation) => [
+      ...(operation.target_record_id ? [this.requireRecord(tenantId, operation.target_record_id).scope ?? {}] : []),
+      ...(operation.replacement ? [operation.replacement.scope ?? {}] : []),
+      ...(operation.patch?.scope ? [operation.patch.scope] : [])
+    ])];
+    const paused = this.store.list("recoverySessions", (session) => session.tenant_id === tenantId && session.state === "active" &&
+      session.risky_canonical_automation_paused && affectedScopes.some((scope) => scopesOverlap(scope, session.scope ?? {})));
+    if (paused.length && !humanReview) throw new SovereignError("canonical_automation_paused", "Trust Recovery pauses canonical automation in this scope. Review the change explicitly or complete recovery.", { status: 409 });
     const currentState = this.currentState(tenantId);
     if (changeSet.base_canonical_revision !== currentState.current_revision) {
       throw new SovereignError("canonical_revision_changed", "Canonical state changed since this proposal; reconcile it before applying.", { status: 409, details: { base_revision: changeSet.base_canonical_revision, current_revision: currentState.current_revision } });
     }
     const nextRevision = currentState.current_revision + 1;
-    const operations = this.changeOperations(tenantId, changeSetId);
     // All validation occurs before any mutation, making this atomic in the
     // in-memory adapter. The Neon repository performs this in one transaction.
     for (const operation of operations) this.validateApplicableOperation(tenantId, operation);
@@ -353,4 +366,9 @@ function scopeMatches(itemScope = {}, requestedScope) {
 function summarizeChanges(changeSets) {
   const operations = changeSets.flatMap((changeSet) => changeSet.affected_record_ids ?? []);
   return { change_set_count: changeSets.length, affected_record_count: new Set(operations).size };
+}
+
+// Missing scope dimensions are broad, so an unscoped operation cannot evade a scoped pause.
+function scopesOverlap(left, right) {
+  return Object.keys(left).every((key) => !(key in right) || JSON.stringify(left[key]) === JSON.stringify(right[key]));
 }

@@ -29,10 +29,28 @@ export class RecoveryService {
     const canonical = this.intelligence.canonicalStatus({ tenantId, scope });
     const sources = this.sources.sourceHealth(tenantId);
     const initialization = this.initialization.listRuns(tenantId).filter((run) => scopeMatches(run.scope, scope));
+    const records = this.intelligence.listRecords({ tenantId, scope });
+    const candidates = this.store.list("candidateIntelligence", (item) => item.tenant_id === tenantId && scopeMatches(item.scope, scope) && item.state === "proposed");
+    const tasks = this.store.list("taskCapsules", (item) => item.tenant_id === tenantId && ["planned", "active", "waiting", "blocked"].includes(item.state));
+    const conflicts = records.flatMap((left, index) => records.slice(index + 1)
+      .filter((right) => left.record_type === right.record_type && JSON.stringify(left.scope) === JSON.stringify(right.scope) &&
+        left.payload?.subject && left.payload.subject === right.payload?.subject && JSON.stringify(left.payload) !== JSON.stringify(right.payload))
+      .map((right) => ({ record_ids: [left.canonical_record_id, right.canonical_record_id], state: "possible_conflict", reason: "Same subject has differing canonical payloads; human review required." })));
     return {
-      scope, canonical, source_health: {
+      scope, canonical,
+      captured_at: this.now(),
+      understanding: this.intelligence.understanding({ tenantId, scope }),
+      canonical_records: records,
+      unresolved_candidates: candidates,
+      possible_conflicts: conflicts,
+      continuity: { scope: "tenant", active_tasks: tasks },
+      uncertainty: records.filter((record) => record.confidence === "low" || record.authority_level === "provisional").map((record) => record.canonical_record_id),
+      missing: [...(!records.length ? ["No active canonical records in this scope."] : []), ...(!sources.total ? ["No connected source evidence."] : [])],
+      source_authority: sources.sources.map((source) => ({ source_id: source.source_id, authority_state: source.authority_state, data_classification: source.data_classification })),
+      source_health: {
         total: sources.total, current: sources.current, stale: sources.stale, failed: sources.failed, partial: sources.partial,
         failed_sources: sources.sources.filter((source) => source.health_state === "failed"),
+        partial_sources: sources.sources.filter((source) => source.health_state === "partial" || source.processing_state === "partial"),
         stale_sources: sources.sources.filter((source) => source.currentness === "stale")
       },
       initialization: initialization.slice(0, 10).map((run) => ({ initialization_run_id: run.initialization_run_id, mode: run.mode, state: run.state, coverage: run.coverage })),
@@ -46,7 +64,7 @@ export class RecoveryService {
     if (session.state !== "active") throw new SovereignError("recovery_not_active", "Recovery session is not active.", { status: 409 });
     const timestamp = this.now();
     return this.store.update("recoverySessions", recoverySessionId, (current) => ({
-      ...current, state: "completed", risky_canonical_automation_paused: false, findings: this.healthReport({ tenantId, scope: current.scope }),
+      ...current, state: "completed", risky_canonical_automation_paused: false, findings: { ...current.findings, completion_review: this.healthReport({ tenantId, scope: current.scope }) },
       completion_summary: summary, completed_by_principal_id: principalId, completed_at: timestamp, updated_at: timestamp
     }));
   }

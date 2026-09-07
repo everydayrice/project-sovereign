@@ -30,6 +30,15 @@ export function sourceWorkbench(snapshot) {
 function readable(value) { if (!value || typeof value !== 'object') return String(value ?? ''); return Object.entries(value).map(([key,v]) => `${key.replaceAll('_',' ')}: ${typeof v === 'object' ? readable(v) : v}`).join(' · '); }
 function values(items, empty) { return items.length ? `<ul>${items.map(item=>`<li>${esc(item)}</li>`).join('')}</ul>` : `<p>${esc(empty)}</p>`; }
 
+export function intelligenceWorkbench(snapshot) {
+ const details=value=>`<pre style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(JSON.stringify(value,null,2))}</pre>`;
+ return `<section class="panel"><h2>Search evidence</h2><form method="post" data-workflow="search"><label>Search terms<input name="q" required></label><label>Source<select name="source_id"><option value="">All sources and current canon</option>${snapshot.sources.sources.map(source=>`<option value="${esc(source.source_id)}">${esc(source.display_name)}</option>`).join('')}</select></label><button>Search</button></form><div id="search-results"></div></section>
+ <section class="panel"><h2>Canon Check</h2><p>${esc(snapshot.canon_check.coverage)}</p><p>${snapshot.canon_check.possible_conflicts.length} possible conflicts · ${snapshot.canon_check.source_issues.length} source issues · ${snapshot.canon_check.uncertainties.length} uncertain records</p>${details(snapshot.canon_check)}</section>
+ <section class="panel"><h2>Candidate review</h2><p>Candidates remain separate from canon until explicit approval.</p>${snapshot.candidates.map(candidate=>`<details><summary>${esc(candidate.record_type)} · ${esc(candidate.state)} · ${esc(candidate.payload?.subject??candidate.candidate_intelligence_id)}</summary>${details(candidate.payload)}<p>Sources: ${esc(candidate.source_ids.join(', '))}</p>${details(candidate.provenance)}${candidate.state==='proposed'?`<button data-candidate-action="propose-canonical" data-id="${esc(candidate.candidate_intelligence_id)}">Propose canonical change</button> <button data-candidate-action="reject" data-id="${esc(candidate.candidate_intelligence_id)}">Reject candidate</button>`:''}</details>`).join('')||'<p>No candidates.</p>'}</section>
+ <section class="panel"><h2>Review changes and reversals</h2>${snapshot.canonical_changes.map(({change_set:change,operations})=>`<details><summary>${esc(change.title)} · ${esc(change.state)} · revision ${esc(change.resulting_canonical_revision??'pending')}</summary><p>${esc(change.reason)}</p><p>Proposed by ${esc(change.proposed_by_principal_id)} · approved by ${esc(change.approved_by_principal_id??'not approved')}</p>${details(operations)}${details(change.provenance)}${['pending_approval','ready'].includes(change.state)?`<button data-canon-action="${change.provenance?.some(p=>p.candidate_intelligence_id)?'approve-candidate':'approve'}" data-id="${esc(change.canonical_change_set_id)}">Approve and apply</button> <button data-canon-action="reject" data-id="${esc(change.canonical_change_set_id)}">Reject change</button>`:change.state==='applied'?`<button data-canon-action="revert" data-id="${esc(change.canonical_change_set_id)}">Propose reversing revision</button>`:''}</details>`).join('')||'<p>No changes.</p>'}</section>
+ <section class="panel"><h2>Current records and history</h2>${snapshot.canonical_records.map(({record,revisions})=>`<details><summary>${esc(record.record_type)} · ${esc(record.lifecycle_state)} · ${esc(record.payload?.subject??record.canonical_record_id)}</summary>${details(record)}<h3>Preserved revisions</h3>${details(revisions)}</details>`).join('')||'<p>No canonical records.</p>'}</section>`;
+}
+
 export function importWorkbench() {
  return `<section class="panel"><h2>Import legacy records</h2><p>Upload a JSON bundle containing repository, exact commit and files. Preview is read-only. Selected intelligence stays proposed; tasks preserve their historical lifecycle.</p><form method="post" data-workflow="legacy-preview"><label>Legacy bundle<input name="bundle" type="file" accept="application/json,.json" required></label><button>Preview import</button></form><div id="legacy-preview"></div><p id="legacy-receipt"></p><form method="post" data-workflow="legacy-rollback"><label>Import receipt ID<input name="receipt_id" required></label><button>Roll back unchanged import</button></form></section>`;
 }
@@ -64,7 +73,10 @@ const WORKFLOW_CLIENT = String.raw`function workflowClient(focus) {
     const action=form.dataset.workflow;const id=encodeURIComponent(form.dataset.id || '');const finish=event.submitter?.name==='finish';
     const buttons=[...form.querySelectorAll('button')];buttons.forEach(b=>b.disabled=true);message('Saving…');
     try {
-      if(action==='legacy-preview'){
+      if(action==='search'){
+        const result=await api('/v1/search?'+new URLSearchParams(body));const out=document.getElementById('search-results');out.replaceChildren(node('p',result.result_count+' results'));
+        for(const evidence of result.results){const row=node('article','');row.append(node('h3',evidence.source_name||evidence.record_type||evidence.kind),node('p',evidence.excerpt),node('p','Provenance: '+(evidence.source_id||evidence.id)));if(evidence.source_id&&evidence.source_item_id){const link=node('a','Retrieve source');link.href='/v1/sources/'+encodeURIComponent(evidence.source_id)+'/items/'+encodeURIComponent(evidence.source_item_id)+'/content';row.append(link);}out.append(row);}message('Search complete.');return;
+      } else if(action==='legacy-preview'){
         const file=form.elements.bundle.files[0];if(file.size>5000000)throw Error('Bundle exceeds 5 MB. Split it into smaller imports.');
         legacyBundle=JSON.parse(await file.text());legacyPlan=await api('/v1/import/preview','POST',legacyBundle);
         const out=document.getElementById('legacy-preview');out.replaceChildren(node('p',legacyPlan.notice));
@@ -119,6 +131,13 @@ const WORKFLOW_CLIENT = String.raw`function workflowClient(focus) {
         if(result.pending_handoff)out.append(node('p','Handoff: '+result.pending_handoff.summary));
       }
     }catch(error){message(error.message);}finally{button.disabled=false;}
+  });
+  document.addEventListener('click',async event=>{
+    const button=event.target.closest('[data-canon-action],[data-candidate-action]');if(!button)return;
+    const action=button.dataset.canonAction||button.dataset.candidateAction;
+    if(!confirm(action.startsWith('approve')?'Apply this reviewed canonical change as a new revision?':action==='revert'?'Create a reversing proposal for separate review?':'Submit this review decision?'))return;
+    button.disabled=true;
+    try{await api((button.dataset.canonAction?'/v1/intelligence/canonical/change-sets/':'/v1/intelligence/candidates/')+encodeURIComponent(button.dataset.id)+'/'+action,'POST',{});location.reload();}catch(error){message(error.message);button.disabled=false;}
   });
   const sourceFilter=document.getElementById('source-filter');if(sourceFilter)sourceFilter.addEventListener('input',()=>{for(const row of document.querySelectorAll('[data-source-search]'))row.hidden=!row.dataset.sourceSearch.includes(sourceFilter.value.toLowerCase());});
   const sourceSort=document.getElementById('source-sort');if(sourceSort)sourceSort.addEventListener('change',()=>{const rows=[...document.querySelectorAll('[data-source-search]')];rows.sort((a,b)=>sourceSort.value==='name'?a.dataset.sourceName.localeCompare(b.dataset.sourceName):b.dataset.sourceUpdated.localeCompare(a.dataset.sourceUpdated));document.getElementById('source-library').append(...rows);});

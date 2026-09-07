@@ -141,11 +141,12 @@ async function route({ request, url, auth, platform, files }) {
   const initializationGet = /^\/v1\/initialization\/runs\/([^/]+)$/.exec(path);
   if (request.method === "GET" && initializationGet) return json({ initialization_run: initialization.getRun(auth.tenantId, initializationGet[1]) });
 
+  if (request.method === "GET" && path === "/v1/intelligence/canonical/check") return json(intelligence.canonCheck({tenantId:auth.tenantId,scope:scopeFromUrl(url)}));
   if (request.method === "GET" && path === "/v1/intelligence/canonical/status") return json(intelligence.canonicalStatus({ tenantId: auth.tenantId, scope: scopeFromUrl(url) }));
   if (request.method === "GET" && path === "/v1/intelligence/canonical/records") return json({ records: intelligence.listRecords({ tenantId: auth.tenantId, scope: scopeFromUrl(url), includeHistorical: url.searchParams.get("history") === "true" }) });
   if (request.method === "GET" && path === "/v1/intelligence/understanding") return json(intelligence.understanding({ tenantId: auth.tenantId, scope: scopeFromUrl(url) }));
   if (request.method === "POST" && path === "/v1/intelligence/candidates") { const body = await bodyJson(request); return json({ candidate_intelligence: intelligence.createCandidate({ ...base, recordType: body.record_type, payload: body.payload, scope: body.scope, sourceIds: body.source_ids, provenance: body.provenance, confidence: body.confidence, reason: body.reason }) }, 201); }
-  if (request.method === "POST" && path === "/v1/intelligence/canonical/change-sets") { const body = await bodyJson(request); return json(intelligence.proposeChangeSet({ ...base, title: body.title, reason: body.reason, operations: body.operations, requiresApproval: body.requires_approval !== false, initiator: body.initiator, scope: body.scope, confidence: body.confidence, sourceIds: body.source_ids, provenance: body.provenance }), 201); }
+  if (request.method === "POST" && path === "/v1/intelligence/canonical/change-sets") { const body = await bodyJson(request); return json(intelligence.proposeChangeSet({ ...base, title: body.title, reason: body.reason, operations: body.operations, requiresApproval: true, initiator: "user", scope: body.scope, confidence: body.confidence, sourceIds: body.source_ids, provenance: body.provenance }), 201); }
   const recordGet = /^\/v1\/intelligence\/canonical\/records\/([^/]+)$/.exec(path);
   if (request.method === "GET" && recordGet) return json(intelligence.getRecord({ tenantId: auth.tenantId, recordId: recordGet[1] }));
   const changeApprove = /^\/v1\/intelligence\/canonical\/change-sets\/([^/]+)\/approve$/.exec(path);
@@ -153,7 +154,7 @@ async function route({ request, url, auth, platform, files }) {
   const changeReject = /^\/v1\/intelligence\/canonical\/change-sets\/([^/]+)\/reject$/.exec(path);
   if (request.method === "POST" && changeReject) { const body = await bodyJson(request); return json({ change_set: intelligence.rejectChangeSet({ ...base, changeSetId: changeReject[1], reason: body.reason }) }); }
   const changeRevert = /^\/v1\/intelligence\/canonical\/change-sets\/([^/]+)\/revert$/.exec(path);
-  if (request.method === "POST" && changeRevert) { const body = await bodyJson(request); return json({ change_set: intelligence.revertChangeSet({ ...base, changeSetId: changeRevert[1], title: body.title, reason: body.reason, requiresApproval: body.requires_approval !== false }) }); }
+  if (request.method === "POST" && changeRevert) { const body = await bodyJson(request); return json({ change_set: intelligence.revertChangeSet({ ...base, changeSetId: changeRevert[1], title: body.title, reason: body.reason, requiresApproval: true }) }); }
 
   if (request.method === "POST" && path === "/v1/recovery") { const body = await bodyJson(request); return json({ recovery_session: recovery.start({ ...base, scope: body.scope ?? {}, reason: body.reason }) }, 201); }
   if (request.method === "GET" && path === "/v1/recovery") return json({ recovery_sessions: recovery.list(auth.tenantId) });

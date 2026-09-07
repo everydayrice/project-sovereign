@@ -1,4 +1,4 @@
-import { continuityWorkbench, recoveryWorkbench, extensionWorkbench, sourceWorkbench, importWorkbench, workflowAssets } from "./workflows.mjs";
+import { continuityWorkbench, recoveryWorkbench, extensionWorkbench, sourceWorkbench, importWorkbench, intelligenceWorkbench, workflowAssets } from "./workflows.mjs";
 const NAVIGATION = [
   ["home", "Home"], ["command", "Command"], ["intelligence", "Intelligence"], ["control-plane", "Control Plane"],
   ["continuity", "Continuity"], ["sources", "Sources / Storage"], ["integrations", "Integrations"],
@@ -24,7 +24,7 @@ export function consoleShellHtml(snapshot, focus = "home") {
           : focus === "audit" ? auditView(snapshot)
             : homeView(snapshot);
   const nav = NAVIGATION.map(([key, label]) => `<a class="${focus === key ? "active" : ""}" href="/console/${key}">${escapeHtml(label)}</a>`).join("");
-  return pageHtml(`${snapshot.tenant.command_display_name} · Sovereign`, `<div class="app-shell"><aside><a class="wordmark" href="/console">${escapeHtml(snapshot.tenant.command_display_name)}</a><nav>${nav}</nav><a class="recovery-link" href="/console/audit">Trust check</a></aside><main class="console"><header><div><p class="eyebrow">${escapeHtml(snapshot.tenant.display_name)}</p><h1>${titleFor(focus)}</h1></div><span class="status ${escapeHtml(snapshot.home.readiness.state)}">${escapeHtml(snapshot.home.readiness.label)}</span></header>${body}${["continuity", "audit", "extensions", "sources", "command"].includes(focus) ? workflowAssets(focus) : ""}</main></div>`);
+  return pageHtml(`${snapshot.tenant.command_display_name} · Sovereign`, `<div class="app-shell"><aside><a class="wordmark" href="/console">${escapeHtml(snapshot.tenant.command_display_name)}</a><nav>${nav}</nav><a class="recovery-link" href="/console/audit">Trust check</a></aside><main class="console"><header><div><p class="eyebrow">${escapeHtml(snapshot.tenant.display_name)}</p><h1>${titleFor(focus)}</h1></div><span class="status ${escapeHtml(snapshot.home.readiness.state)}">${escapeHtml(snapshot.home.readiness.label)}</span></header>${body}${["continuity", "audit", "extensions", "sources", "command", "intelligence"].includes(focus) ? workflowAssets(focus) : ""}</main></div>`);
 }
 
 function homeView(snapshot) {
@@ -33,7 +33,7 @@ function homeView(snapshot) {
 
 function intelligenceView(snapshot) {
   const status = snapshot.intelligence;
-  return `<section class="cards"><article><span>Current revision</span><strong>#${status.current_canonical_revision}</strong><p>${status.latest_checkpoint?.title ?? "No checkpoint created"}</p></article><article><span>Canonical records</span><strong>${status.active_record_count}</strong><p>${status.superseded_record_count} superseded preserved in history</p></article><article><span>Pending approval</span><strong>${status.pending_change_sets.length}</strong><p>Changes never become canonical invisibly</p></article><article><span>Historical removals</span><strong>${status.tombstoned_record_count}</strong><p>Tombstones retain a reversible audit trail</p></article></section><section class="panel"><div class="panel-header"><h2>Canonical change history</h2><span>Inspectable · attributable · reversible</span></div>${changeList(status.recent_change_sets)}</section><section class="panel"><div class="panel-header"><h2>Pending canonical changes</h2><span>Owner review required</span></div>${changeList(status.pending_change_sets)}</section>`;
+  return `${intelligenceWorkbench(snapshot)}<section class="cards"><article><span>Current revision</span><strong>#${status.current_canonical_revision}</strong><p>${status.latest_checkpoint?.title ?? "No checkpoint created"}</p></article><article><span>Canonical records</span><strong>${status.active_record_count}</strong><p>${status.superseded_record_count} superseded preserved in history</p></article><article><span>Pending approval</span><strong>${status.pending_change_sets.length}</strong><p>Changes never become canonical invisibly</p></article><article><span>Historical removals</span><strong>${status.tombstoned_record_count}</strong><p>Tombstones retain a reversible audit trail</p></article></section><section class="panel"><div class="panel-header"><h2>Canonical change history</h2><span>Inspectable · attributable · reversible</span></div>${changeList(status.recent_change_sets)}</section><section class="panel"><div class="panel-header"><h2>Pending canonical changes</h2><span>Owner review required</span></div>${changeList(status.pending_change_sets)}</section>`;
 }
 
 function commandView(snapshot) {

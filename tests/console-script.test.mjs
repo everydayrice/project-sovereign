@@ -12,7 +12,7 @@ test('Delivered Console script initializes independently of Worker bundle helper
     document: { getElementById: id => elements[id], addEventListener: name => events.push(name), createElement: () => ({}) },
     fetch: async path => { requests.push(path);return {ok:true,json:async()=>({ideas:[]})}; }
   });
-  assert.deepEqual(events, ['submit','click']);
+  assert.deepEqual(events, ['submit','click','click']);
   assert.deepEqual(requests, ['/v1/continuity/ideas']);
   assert.ok(!script.includes('__name'));
 });

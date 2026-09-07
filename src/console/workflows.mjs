@@ -30,6 +30,10 @@ export function sourceWorkbench(snapshot) {
 function readable(value) { if (!value || typeof value !== 'object') return String(value ?? ''); return Object.entries(value).map(([key,v]) => `${key.replaceAll('_',' ')}: ${typeof v === 'object' ? readable(v) : v}`).join(' · '); }
 function values(items, empty) { return items.length ? `<ul>${items.map(item=>`<li>${esc(item)}</li>`).join('')}</ul>` : `<p>${esc(empty)}</p>`; }
 
+export function importWorkbench() {
+ return `<section class="panel"><h2>Import legacy records</h2><p>Upload a JSON bundle containing repository, exact commit and files. Preview is read-only. Selected intelligence stays proposed; tasks preserve their historical lifecycle.</p><form method="post" data-workflow="legacy-preview"><label>Legacy bundle<input name="bundle" type="file" accept="application/json,.json" required></label><button>Preview import</button></form><div id="legacy-preview"></div><p id="legacy-receipt"></p><form method="post" data-workflow="legacy-rollback"><label>Import receipt ID<input name="receipt_id" required></label><button>Roll back unchanged import</button></form></section>`;
+}
+
 export function workflowAssets(focus) {
   return `<style>form[data-workflow]{display:grid;gap:12px;margin:16px 0;max-width:760px}form[data-workflow] label{display:grid;gap:5px}input,textarea,select,button{font:inherit}form[data-workflow] input,form[data-workflow] textarea,form[data-workflow] select{width:100%;min-width:0;border:1px solid #ccd1d9;border-radius:7px;padding:10px;background:white;color:#111419}button{cursor:pointer;border:1px solid #cbd0d8;border-radius:7px;padding:10px 14px;background:#f5f6f8;color:#111419;min-height:44px}form[data-workflow] input[type=checkbox]{width:auto}button:disabled{opacity:.6;cursor:wait}details{border-top:1px solid #e5e7eb;padding:14px 0}summary{cursor:pointer;font-weight:650;overflow-wrap:anywhere}#workflow-status{position:sticky;bottom:12px;background:#eef2ff;padding:14px;border:1px solid #bdcafa;border-radius:8px}#workflow-status:empty{display:none}</style><p id="workflow-status" role="status" aria-live="polite"></p><script>(${WORKFLOW_CLIENT})(${JSON.stringify(focus)})</script>`;
 }
@@ -37,6 +41,7 @@ export function workflowAssets(focus) {
 const WORKFLOW_CLIENT = String.raw`function workflowClient(focus) {
   let sessionId=null;
   let reviewedManifest=null;
+  let legacyBundle=null, legacyPlan=null;
   const status=document.getElementById('workflow-status');
   const message=text=>{status.textContent=text;};
   const api=async(path,method='GET',body)=>{
@@ -59,7 +64,21 @@ const WORKFLOW_CLIENT = String.raw`function workflowClient(focus) {
     const action=form.dataset.workflow;const id=encodeURIComponent(form.dataset.id || '');const finish=event.submitter?.name==='finish';
     const buttons=[...form.querySelectorAll('button')];buttons.forEach(b=>b.disabled=true);message('Saving…');
     try {
-      if(action==='extension-review'){
+      if(action==='legacy-preview'){
+        const file=form.elements.bundle.files[0];if(file.size>5000000)throw Error('Bundle exceeds 5 MB. Split it into smaller imports.');
+        legacyBundle=JSON.parse(await file.text());legacyPlan=await api('/v1/import/preview','POST',legacyBundle);
+        const out=document.getElementById('legacy-preview');out.replaceChildren(node('p',legacyPlan.notice));
+        const selection=document.createElement('form');selection.method='post';selection.dataset.workflow='legacy-apply';
+        for(const entry of legacyPlan.inventory){const label=node('label',entry.title+' · '+entry.kind+' · '+entry.lifecycle+' · '+entry.path+' · '+(entry.provenance.source_updated_at||'date unknown')+' · conflicts: '+entry.possible_conflicts.length+(entry.existing_source_id?' · already imported':''));const input=document.createElement('input');input.type='checkbox';input.name='entry';input.value=entry.entry_id;input.disabled=Boolean(entry.existing_source_id);label.prepend(input);selection.append(label);}
+        selection.append(node('button','Import selected entries'));out.append(selection);message('Dry run complete. Select only the records you want to import.');return;
+      } else if(action==='legacy-apply'){
+        if(!confirm('Import selected historical records? Intelligence will require separate review.'))return;
+        const result=await api('/v1/import/apply','POST',{...legacyBundle,plan_hash:legacyPlan.plan_hash,selected_ids:new FormData(form).getAll('entry')});
+        document.getElementById('legacy-receipt').textContent='Import receipt: '+result.receipt_id+' · '+result.imported.length+' entries · no canonical writes';document.querySelector('[name=receipt_id]').value=result.receipt_id;document.getElementById('legacy-preview').replaceChildren();message('Import complete. Keep the receipt for rollback.');return;
+      } else if(action==='legacy-rollback'){
+        if(!confirm('Cancel imported tasks, reject imported candidates and remove their sources from retrieval? History is retained.'))return;
+        await api('/v1/import/rollback','POST',body);message('Import rolled back. History is preserved.');return;
+      } else if(action==='extension-review'){
         reviewedManifest=JSON.parse(body.manifest);const out=document.getElementById('extension-review');out.replaceChildren(node('h3',reviewedManifest.name || 'Unnamed extension'),node('p','Publisher: '+reviewedManifest.publisher),node('p',reviewedManifest.description || ''),node('p','Retention: '+reviewedManifest.privacy?.retention_behavior),node('p','Uninstall: '+reviewedManifest.privacy?.uninstall_behavior));
         const approval=document.createElement('form');approval.method='post';approval.dataset.workflow='extension-install';
         for(const scope of reviewedManifest.sovereign?.requested_scopes || []){const label=node('label',scope);const input=document.createElement('input');input.type='checkbox';input.name='scope';input.value=scope;label.prepend(input);approval.append(label);}approval.append(node('button','Approve installation'));out.append(approval);message('Review the publisher and requested access before installing.');return;
@@ -96,6 +115,7 @@ const WORKFLOW_CLIENT = String.raw`function workflowClient(focus) {
         const out=button.parentElement.querySelector('[data-resume-output]');out.replaceChildren(node('h3','Resume '+result.task.title),node('p','Next action: '+(result.next_action||'Not recorded')));
         for(const blocker of result.blockers)out.append(node('p','Blocked: '+blocker));
         for(const checkpoint of result.recent_checkpoints)out.append(node('p',checkpoint.summary));
+        for(const reference of result.task.intelligence_references||[])for(const checkpoint of reference.legacy_checkpoints||[])out.append(node('p','Legacy history · '+(checkpoint.created_at||checkpoint.timestamp||'date unknown')+' · '+checkpoint.summary));
         if(result.pending_handoff)out.append(node('p','Handoff: '+result.pending_handoff.summary));
       }
     }catch(error){message(error.message);}finally{button.disabled=false;}

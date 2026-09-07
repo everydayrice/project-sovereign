@@ -109,11 +109,16 @@ async function route({ request, url, auth, platform, files }) {
     const sourceId = sourceContent[1];
     const sourceItemId = sourceContent[2];
     const item = sources.getSourceItem(auth.tenantId, sourceItemId);
-    if (item.source_id !== sourceId || item.storage_state !== "stored") throw new SovereignError("stored_object_not_found", "Stored source object was not found.", { status: 404 });
+    if (item.source_id !== sourceId || item.storage_state !== "stored" || item.privacy_state === "excluded") throw new SovereignError("stored_object_not_found", "Stored source object was not found.", { status: 404 });
     const object = await files.get({ tenantId: auth.tenantId, sourceId, sourceItemId });
     if (!object) throw new SovereignError("stored_object_not_found", "Stored source object was not found.", { status: 404 });
     const headers = new Headers();
     object.writeHttpMetadata?.(headers);
+    // Tenant-uploaded HTML/SVG must never execute with Console credentials.
+    headers.set("content-disposition", `attachment; filename*=UTF-8''${encodeURIComponent(item.display_name)}`);
+    headers.set("content-security-policy", "sandbox; default-src 'none'");
+    headers.set("x-content-type-options", "nosniff");
+    headers.set("cache-control", "private, no-store");
     headers.set("etag", object.httpEtag ?? object.etag ?? "");
     return new Response(object.body, { headers });
   }

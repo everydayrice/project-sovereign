@@ -75,6 +75,9 @@ async function route({ request, url, auth, platform, files }) {
     const args = { ...base, extensionId: extensionAction[1] };
     return json(["enable", "disable"].includes(extensionAction[2]) ? platform.extensions.setEnabled({ ...args, enabled: extensionAction[2] === "enable" }) : platform.extensions[extensionAction[2]](args));
   }
+  if (request.method === 'PATCH' && path === '/v1/command/settings') {const body=await bodyJson(request);return json({tenant:command.updateTenant({...base,displayName:body.display_name,commandDisplayName:body.command_display_name})});}
+  const workspaceUpdate=/^\/v1\/command\/workspaces\/([^/]+)$/.exec(path);
+  if(request.method==='PATCH'&&workspaceUpdate){const body=await bodyJson(request);return json({workspace:command.updateWorkspace({...base,workspaceId:workspaceUpdate[1],displayName:body.display_name,state:body.state})});}
   if (request.method === "GET" && path === "/v1/command/workspaces") return json({ workspaces: command.listWorkspaces(auth.tenantId) });
   if (request.method === "POST" && path === "/v1/command/workspaces") { const body = await bodyJson(request); return json({ workspace: command.createWorkspace({ ...base, slug: body.slug, displayName: body.display_name, parentWorkspaceId: body.parent_workspace_id, settings: body.settings ?? {} }) }, 201); }
 

@@ -41,6 +41,19 @@ export class CommandService {
     });
   }
 
+  updateTenant({tenantId,principalId,displayName,commandDisplayName}) {
+    this.requireActiveTenant(tenantId);this.requirePrincipal(tenantId,principalId);
+    requireCondition(typeof displayName==='string'&&displayName.trim()&&displayName.length<=120&&typeof commandDisplayName==='string'&&commandDisplayName.trim()&&commandDisplayName.length<=120,'tenant_name_required','Tenant and Command names must be 1–120 characters.');
+    return this.store.update('tenants',tenantId,current=>({...current,display_name:displayName.trim(),command_display_name:commandDisplayName.trim(),revision:current.revision+1,updated_at:this.now()}));
+  }
+
+  updateWorkspace({tenantId,principalId,workspaceId,displayName,state}) {
+    this.requirePrincipal(tenantId,principalId);this.store.requireTenant('workspaces',workspaceId,tenantId);
+    requireCondition(typeof displayName==='string'&&displayName.trim()&&displayName.length<=120,'workspace_name_required','Workspace name must be 1–120 characters.');
+    requireCondition(['active','archived'].includes(state),'workspace_state_invalid','Choose active or archived.');
+    return this.store.update('workspaces',workspaceId,current=>({...current,display_name:displayName.trim(),state,revision:current.revision+1,updated_at:this.now()}));
+  }
+
   listWorkspaces(tenantId) {
     this.requireActiveTenant(tenantId);
     return this.store.list("workspaces", (workspace) => workspace.tenant_id === tenantId).sort((left, right) => left.display_name.localeCompare(right.display_name));

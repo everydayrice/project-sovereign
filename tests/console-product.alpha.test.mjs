@@ -82,3 +82,25 @@ test("A test transport credential cannot invent a principal or cross a tenant bo
   const crossTenant = await request(ctx.gateway, "/v1/console/snapshot", { headers: { authorization: `Test tenant=${other.tenant_id}; principal=${ctx.principal.principal_id}` } });
   assert.equal(crossTenant.status, 404);
 });
+
+test("Console task workflow persists edits and resumes checkpoints through browser routes", async () => {
+  const ctx = fixture();
+  const call = async (path, method = 'GET', body) => {
+    const response = await request(ctx.gateway, path, { method, body, headers: ctx.headers });
+    assert.ok(response.ok, await response.clone().text());return response.json();
+  };
+  const { task_capsule: task } = await call('/v1/continuity/tasks','POST',{title:'Console task',objective:'Resume real work',next_action:'Inspect evidence'});
+  await call('/v1/continuity/tasks/'+task.task_capsule_id,'PATCH',{state:'blocked',blockers:['Waiting for evidence'],next_action:'Request evidence'});
+  const entered = await call('/v1/control-plane/check-in','POST',{task_capsule_id:task.task_capsule_id,objective:task.objective,actor:{provider:{key:'sovereign'},surface:{key:'console',type:'human'},externalSessionId:'console-test'}});
+  await call('/v1/control-plane/traffic/sessions/'+entered.traffic_session.traffic_session_id+'/checkpoints','POST',{summary:'Evidence received',next_action:'Review evidence',blockers:[]});
+  await call('/v1/control-plane/traffic/sessions/'+entered.traffic_session.traffic_session_id+'/checkout','POST',{next_action:'Review evidence'});
+  const resume = await call('/v1/continuity/tasks/'+task.task_capsule_id+'/resume');
+  assert.equal(resume.next_action,'Review evidence');
+  assert.ok(resume.recent_checkpoints.some(item => item.summary === 'Evidence received'));
+  assert.equal(resume.latest_session.state,'closed');
+  assert.equal(resume.recent_sessions.length,1);
+  const foreign = ctx.platform.command.createTenant({slug:'foreign-console',displayName:'Foreign'});
+  const outsider=ctx.platform.command.createPrincipal({tenantId:foreign.tenant_id,displayName:'Other'});
+  const response=await request(ctx.gateway,'/v1/continuity/tasks/'+task.task_capsule_id+'/resume',{headers:{authorization:`Test tenant=${foreign.tenant_id}; principal=${outsider.principal_id}`}});
+  assert.equal(response.status,404);
+});

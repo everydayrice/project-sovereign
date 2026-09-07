@@ -149,6 +149,9 @@ export class TrafficService {
       ...current, state, checked_out_at: timestamp, next_action: nextAction ?? current.next_action,
       outcome: { ...outcome, artifact_references: artifactReferences, blockers }, revision: current.revision + 1, updated_at: timestamp
     }));
+    for (const capsule of this.continuity.listSessions(tenantId, { taskCapsuleId: session.task_capsule_id, states: ["active", "waiting", "blocked"] }).filter((item) => item.actor_instance_id === session.actor_instance_id)) {
+      this.continuity.updateSessionCapsule({ tenantId, sessionCapsuleId: capsule.session_capsule_id, state: ["waiting", "blocked"].includes(state) ? state : "closed", resumeState: { ...capsule.resume_state, next_action: nextAction ?? null, blockers, outcome } });
+    }
     this.continuity.createCheckpoint({ tenantId, trafficSession: checkedOut, kind: "checkout", summary: `Traffic Session checked out as ${state}.`, nextAction, blockers, artifactReferences });
     this.audit({ tenantId, principalId, actorInstanceId: session.actor_instance_id, trafficSessionId, eventType: "control_plane.checked_out", subjectType: "traffic_session", subjectId: trafficSessionId, metadata: { state, artifactReferences } });
     return checkedOut;

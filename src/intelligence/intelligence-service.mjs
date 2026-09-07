@@ -59,6 +59,11 @@ export class IntelligenceService {
   rejectChangeSet({ tenantId, principalId, changeSetId, reason }) {
     const changeSet = this.requireChangeSet(tenantId, changeSetId);
     if (!["pending_approval", "ready"].includes(changeSet.state)) throw new SovereignError("change_set_not_pending", "Canonical Change Set is not available for rejection.", { status: 409 });
+    for (const ref of changeSet.provenance ?? []) {
+      if (!ref?.candidate_intelligence_id) continue;
+      const candidate = this.store.requireTenant('candidateIntelligence', ref.candidate_intelligence_id, tenantId);
+      if (candidate.state === 'under_review' && candidate.canonical_change_set_id === changeSetId) this.store.update('candidateIntelligence', candidate.candidate_intelligence_id, {state:'rejected',rejection_reason:reason ?? 'Canonical proposal rejected.',updated_at:this.now()});
+    }
     return this.store.update("canonicalChangeSets", changeSetId, (current) => ({
       ...current, state: "rejected", rejected_by_principal_id: principalId, rejection_reason: reason ?? null,
       rejected_at: this.now(), updated_at: this.now()
@@ -168,6 +173,23 @@ export class IntelligenceService {
   getChangeSet(tenantId, changeSetId) {
     const changeSet = this.requireChangeSet(tenantId, changeSetId);
     return { change_set: changeSet, operations: this.changeOperations(tenantId, changeSetId) };
+  }
+
+  canonCheck({ tenantId, scope }) {
+    const records = this.listRecords({ tenantId, scope });
+    const candidates = this.store.list('candidateIntelligence', item => item.tenant_id === tenantId && ['proposed','under_review'].includes(item.state) && scopeMatches(item.scope, scope));
+    const entries = [...records.map(record => ({id:record.canonical_record_id,kind:'canonical',record})), ...candidates.map(record => ({id:record.candidate_intelligence_id,kind:'candidate',record}))];
+    const groups = new Map();
+    for (const entry of entries) {
+      const subject = entry.record.payload?.subject ?? entry.record.payload?.legacy_record?.id;
+      if (!subject) continue;
+      const key = stableHash({subject,scope:entry.record.scope ?? {},type:entry.record.record_type});
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(entry);
+    }
+    const possibleConflicts = [...groups.values()].filter(group => new Set(group.map(entry=>stableHash(entry.record.payload))).size > 1).map(group => ({subject:group[0].record.payload.subject??group[0].record.payload.legacy_record.id,entries:group.map(({id,kind})=>({id,kind})),reason:'Different payloads for the same explicit subject, type and scope; human review required.'}));
+    const sourceIssues = records.flatMap(record => record.source_ids.flatMap(id=>{const source=this.store.get('sources',id);return !source || source.tenant_id!==tenantId || source.metadata?.removed || source.metadata?.archived || ['stale','failed','partial','unknown'].includes(source.currentness) ? [{record_id:record.canonical_record_id,source_id:id,state:source?.currentness??'missing',excluded:Boolean(source?.metadata?.removed||source?.metadata?.archived)}]:[];}));
+    return {canonical_revision:this.store.list("canonicalStates", item=>item.tenant_id===tenantId)[0]?.current_revision??0,possible_conflicts:possibleConflicts,source_issues:sourceIssues,uncertainties:records.filter(record=>record.confidence==='low'||record.authority_level==='provisional').map(record=>record.canonical_record_id),coverage:'Checks explicit matching subjects and source health; does not claim semantic contradiction detection.',canonical_writes:0};
   }
 
   understanding({ tenantId, scope }) {

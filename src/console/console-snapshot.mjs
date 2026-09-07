@@ -21,6 +21,10 @@ export function buildConsoleSnapshot({ platform, tenantId }) {
       improvement: platform.improvement.health(tenantId)
     },
     source_items: platform.store.list("sourceItems", item => item.tenant_id === tenantId),
+    canonical_records: platform.intelligence.listRecords({tenantId,includeHistorical:true}).map(record=>platform.intelligence.getRecord({tenantId,recordId:record.canonical_record_id})),
+    canonical_changes: platform.store.list("canonicalChangeSets", item=>item.tenant_id===tenantId).map(item=>platform.intelligence.getChangeSet(tenantId,item.canonical_change_set_id)),
+    candidates: platform.store.list("candidateIntelligence", item=>item.tenant_id===tenantId),
+    canon_check: platform.intelligence.canonCheck({tenantId}),
     workspaces, connectors, extensions, intelligence, sources, initialization_runs: initializationRuns, traffic, continuity,
     recovery: platform.recovery.list(tenantId), audit
   };

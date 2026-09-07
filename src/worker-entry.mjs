@@ -1,3 +1,4 @@
+import { previewLegacy, applyLegacy, rollbackLegacy } from "./portability/legacy-import.mjs";
 import { exportTenant } from "./portability/export.mjs";
 import { authorizeGovernance } from "./auth/governance.mjs";
 import baseWorker from "./worker.mjs";
@@ -32,6 +33,17 @@ export default {
         const { binding, platform } = await loadBoundPlatform({ request, authenticate, persistence });
         const [ideas, commandConfig] = await Promise.all([ideaStore.list({ tenantId: binding.tenant_id }), persistence.exportCommandConfig(binding.tenant_id)]);
         return Response.json(exportTenant({ platform, tenantId: binding.tenant_id, ideas, commandConfig }), { headers: { "cache-control": "private, no-store", "content-disposition": "attachment; filename=sovereign-export.json", "x-content-type-options": "nosniff" } });
+      }
+
+      if (request.method === "POST" && ["/v1/import/preview", "/v1/import/apply", "/v1/import/rollback"].includes(url.pathname)) {
+        const { binding, platform, loaded } = await loadBoundPlatform({ request, authenticate, persistence });
+        const body = await jsonBody(request);
+        const args = { platform, tenantId: binding.tenant_id, principalId: binding.principal_id, repository: body.repository, commit: body.commit, files: body.files };
+        if (url.pathname.endsWith("/preview")) return Response.json(previewLegacy(args));
+        const result = url.pathname.endsWith("/apply") ? applyLegacy({ ...args, selectedIds: body.selected_ids, planHash: body.plan_hash }) : rollbackLegacy({ ...args, receiptId: body.receipt_id });
+        await persistence.saveTenant({ tenantId: binding.tenant_id, store: platform.store, expectedVersion: loaded.version, sourceChunkReplacements: result.sourceChunkReplacements ?? [] });
+        const { sourceChunkReplacements, ...receipt } = result;
+        return Response.json(receipt);
       }
 
       if (url.pathname === "/mcp") {

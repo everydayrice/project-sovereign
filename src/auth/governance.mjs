@@ -5,6 +5,7 @@ export function governancePermission(request) {
   if (request.method === 'GET' && new URL(request.url).pathname === '/v1/export') return 'command.export';
   if (['GET', 'HEAD', 'OPTIONS'].includes(request.method)) return null;
   const path = new URL(request.url).pathname;
+  if (path.startsWith('/v1/import/')) return 'command.import';
   if (path.startsWith('/v1/command/service-credentials')) return 'command.service_credentials.manage';
   if (path.startsWith('/v1/command/')) return 'command.manage';
   if (/^\/v1\/sources\/[^/]+$/.test(path) && request.method === 'PATCH') return 'sources.manage';

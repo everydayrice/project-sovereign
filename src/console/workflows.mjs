@@ -39,6 +39,10 @@ export function intelligenceWorkbench(snapshot) {
  <section class="panel"><h2>Current records and history</h2>${snapshot.canonical_records.map(({record,revisions})=>`<details><summary>${esc(record.record_type)} · ${esc(record.lifecycle_state)} · ${esc(record.payload?.subject??record.canonical_record_id)}</summary>${details(record)}<h3>Preserved revisions</h3>${details(revisions)}</details>`).join('')||'<p>No canonical records.</p>'}</section>`;
 }
 
+export function commandWorkbench(snapshot) {
+ return `<section class="panel"><h2>Tenant settings</h2><form method="post" data-workflow="tenant-settings">${field('display_name','Tenant name',snapshot.tenant.display_name,true)}${field('command_display_name','Command name',snapshot.tenant.command_display_name,true)}<button>Save names</button></form></section><section class="panel"><h2>Manage workspaces</h2><form method="post" data-workflow="workspace-create">${field('display_name','New workspace name','',true)}${field('slug','Workspace slug','',true)}<button>Create workspace</button></form>${snapshot.workspaces.map(workspace=>`<details><summary>${esc(workspace.display_name)} · ${esc(workspace.state)}</summary><form method="post" data-workflow="workspace-update" data-id="${esc(workspace.workspace_id)}">${field('display_name','Workspace name',workspace.display_name,true)}<label>State<select name="state">${['active','archived'].map(state=>`<option ${state===workspace.state?'selected':''}>${state}</option>`).join('')}</select></label><button>Save workspace</button></form></details>`).join('')}</section><section class="panel"><h2>Access and policy configuration</h2><p>Inspect configured roles, grants, policies and runtime providers. Changes to access and policy rules require separate governance administration.</p><div id="command-configuration">Loading configuration…</div></section>`;
+}
+
 export function importWorkbench() {
  return `<section class="panel"><h2>Import legacy records</h2><p>Upload a JSON bundle containing repository, exact commit and files. Preview is read-only. Selected intelligence stays proposed; tasks preserve their historical lifecycle.</p><form method="post" data-workflow="legacy-preview"><label>Legacy bundle<input name="bundle" type="file" accept="application/json,.json" required></label><button>Preview import</button></form><div id="legacy-preview"></div><p id="legacy-receipt"></p><form method="post" data-workflow="legacy-rollback"><label>Import receipt ID<input name="receipt_id" required></label><button>Roll back unchanged import</button></form></section>`;
 }
@@ -58,6 +62,13 @@ const WORKFLOW_CLIENT = String.raw`function workflowClient(focus) {
     const result=await response.json();if(!response.ok)throw Error(result.message || 'Request failed. Please try again.');return result;
   };
   const node=(tag,text)=>{const element=document.createElement(tag);element.textContent=text;return element;};
+  function confirmAction(text) {
+    return new Promise(resolve=>{
+      const previous=document.activeElement;const dialog=document.createElement('dialog');dialog.setAttribute('aria-labelledby','review-action-title');dialog.style.cssText='max-width:520px;width:calc(100% - 32px);border:1px solid #bdcafa;border-radius:12px;padding:24px;color:#111419;background:white';
+      const heading=node('h2','Review action');heading.id='review-action-title';dialog.append(heading,node('p',text));const cancel=node('button','Cancel');const approve=node('button','Confirm action');cancel.type=approve.type='button';
+      const finish=value=>{dialog.close();dialog.remove();previous?.focus();resolve(value);};cancel.addEventListener('click',()=>finish(false));approve.addEventListener('click',()=>finish(true));dialog.addEventListener('cancel',event=>{event.preventDefault();finish(false);});dialog.append(cancel,approve);document.body.append(dialog);dialog.showModal();cancel.focus();
+    });
+  }
   async function ideas(){
     const out=document.getElementById('ideas-list');if(!out)return;
     try { const result=await api('/v1/continuity/ideas');out.replaceChildren();
@@ -73,7 +84,10 @@ const WORKFLOW_CLIENT = String.raw`function workflowClient(focus) {
     const action=form.dataset.workflow;const id=encodeURIComponent(form.dataset.id || '');const finish=event.submitter?.name==='finish';
     const buttons=[...form.querySelectorAll('button')];buttons.forEach(b=>b.disabled=true);message('Saving…');
     try {
-      if(action==='search'){
+      if(action==='tenant-settings'){await api('/v1/command/settings','PATCH',body);location.reload();return;}
+      else if(action==='workspace-create'){await api('/v1/command/workspaces','POST',body);location.reload();return;}
+      else if(action==='workspace-update'){await api('/v1/command/workspaces/'+id,'PATCH',body);location.reload();return;}
+      else if(action==='search'){
         const result=await api('/v1/search?'+new URLSearchParams(body));const out=document.getElementById('search-results');out.replaceChildren(node('p',result.result_count+' results'));
         for(const evidence of result.results){const row=node('article','');row.append(node('h3',evidence.source_name||evidence.record_type||evidence.kind),node('p',evidence.excerpt),node('p','Provenance: '+(evidence.source_id||evidence.id)));if(evidence.source_id&&evidence.source_item_id){const link=node('a','Retrieve source');link.href='/v1/sources/'+encodeURIComponent(evidence.source_id)+'/items/'+encodeURIComponent(evidence.source_item_id)+'/content';row.append(link);}out.append(row);}message('Search complete.');return;
       } else if(action==='legacy-preview'){
@@ -84,11 +98,11 @@ const WORKFLOW_CLIENT = String.raw`function workflowClient(focus) {
         for(const entry of legacyPlan.inventory){const label=node('label',entry.title+' · '+entry.kind+' · '+entry.lifecycle+' · '+entry.path+' · '+(entry.provenance.source_updated_at||'date unknown')+' · conflicts: '+entry.possible_conflicts.length+(entry.existing_source_id?' · already imported':''));const input=document.createElement('input');input.type='checkbox';input.name='entry';input.value=entry.entry_id;input.disabled=Boolean(entry.existing_source_id);label.prepend(input);selection.append(label);}
         selection.append(node('button','Import selected entries'));out.append(selection);message('Dry run complete. Select only the records you want to import.');return;
       } else if(action==='legacy-apply'){
-        if(!confirm('Import selected historical records? Intelligence will require separate review.'))return;
+        if(!await confirmAction('Import selected historical records? Intelligence will require separate review.'))return;
         const result=await api('/v1/import/apply','POST',{...legacyBundle,plan_hash:legacyPlan.plan_hash,selected_ids:new FormData(form).getAll('entry')});
         document.getElementById('legacy-receipt').textContent='Import receipt: '+result.receipt_id+' · '+result.imported.length+' entries · no canonical writes';document.querySelector('[name=receipt_id]').value=result.receipt_id;document.getElementById('legacy-preview').replaceChildren();message('Import complete. Keep the receipt for rollback.');return;
       } else if(action==='legacy-rollback'){
-        if(!confirm('Cancel imported tasks, reject imported candidates and remove their sources from retrieval? History is retained.'))return;
+        if(!await confirmAction('Cancel imported tasks, reject imported candidates and remove their sources from retrieval? History is retained.'))return;
         await api('/v1/import/rollback','POST',body);message('Import rolled back. History is preserved.');return;
       } else if(action==='extension-review'){
         reviewedManifest=JSON.parse(body.manifest);const out=document.getElementById('extension-review');out.replaceChildren(node('h3',reviewedManifest.name || 'Unnamed extension'),node('p','Publisher: '+reviewedManifest.publisher),node('p',reviewedManifest.description || ''),node('p','Retention: '+reviewedManifest.privacy?.retention_behavior),node('p','Uninstall: '+reviewedManifest.privacy?.uninstall_behavior));
@@ -101,7 +115,7 @@ const WORKFLOW_CLIENT = String.raw`function workflowClient(focus) {
       else if(action==='task-update')await api('/v1/continuity/tasks/'+id,'PATCH',body);
       else if(action==='idea-create'){await api('/v1/continuity/ideas','POST',body);form.reset();await ideas();message('Idea captured.');return;}
       else if(action==='recovery-start'){await api('/v1/recovery','POST',{reason:body.reason,scope:body.project.trim()?{project:body.project.trim()}:{}});}
-      else if(action==='recovery-complete'){if(!confirm('Complete this recovery and allow canonical automation to resume in its scope?')){message('Recovery remains active.');return;}await api('/v1/recovery/'+id+'/complete','POST',body);}
+      else if(action==='recovery-complete'){if(!await confirmAction('Complete this recovery and allow canonical automation to resume in its scope?')){message('Recovery remains active.');return;}await api('/v1/recovery/'+id+'/complete','POST',body);}
       else if(action==='checkpoint'){
         if(!sessionId)throw Error('Start work on a task first.');
         await api('/v1/control-plane/traffic/sessions/'+encodeURIComponent(sessionId)+'/checkpoints','POST',{...body,kind:'progress'});
@@ -113,9 +127,9 @@ const WORKFLOW_CLIENT = String.raw`function workflowClient(focus) {
   });
   document.addEventListener('click',async event=>{
     const sourceButton=event.target.closest('[data-source-action]');
-    if(sourceButton){const action=sourceButton.dataset.sourceAction;const path='/v1/sources/'+encodeURIComponent(sourceButton.dataset.sourceId);if(action==='remove' && !confirm('Remove this source from the active library and exclude its contents from retrieval and download? Evidence history and retained objects are preserved.'))return;sourceButton.disabled=true;message('Updating source…');try{if(action==='reprocess')await api(path+'/initialize-text','POST',{});else await api(path,'PATCH',action==='remove'?{removed:true}:{archived:action==='archive'});location.reload();}catch(error){message(error.message);sourceButton.disabled=false;}return;}
+    if(sourceButton){const action=sourceButton.dataset.sourceAction;const path='/v1/sources/'+encodeURIComponent(sourceButton.dataset.sourceId);if(action==='remove' && !await confirmAction('Remove this source from the active library and exclude its contents from retrieval and download? Evidence history and retained objects are preserved.'))return;sourceButton.disabled=true;message('Updating source…');try{if(action==='reprocess')await api(path+'/initialize-text','POST',{});else await api(path,'PATCH',action==='remove'?{removed:true}:{archived:action==='archive'});location.reload();}catch(error){message(error.message);sourceButton.disabled=false;}return;}
     const extensionButton=event.target.closest('[data-extension-action]');
-    if(extensionButton){const action=extensionButton.dataset.extensionAction;if(!confirm(action+' this extension? Core tasks and intelligence will be preserved.'))return;extensionButton.disabled=true;try{await api('/v1/extensions/'+encodeURIComponent(extensionButton.dataset.extensionId)+'/'+action,'POST',{});location.reload();}catch(error){message(error.message);extensionButton.disabled=false;}return;}
+    if(extensionButton){const action=extensionButton.dataset.extensionAction;if(!await confirmAction(action+' this extension? Core tasks and intelligence will be preserved.'))return;extensionButton.disabled=true;try{await api('/v1/extensions/'+encodeURIComponent(extensionButton.dataset.extensionId)+'/'+action,'POST',{});location.reload();}catch(error){message(error.message);extensionButton.disabled=false;}return;}
     const button=event.target.closest('[data-resume],[data-start]');if(!button)return;button.disabled=true;
     try {
       const id=button.dataset.resume || button.dataset.start;const result=await api('/v1/continuity/tasks/'+encodeURIComponent(id)+'/resume');
@@ -135,11 +149,12 @@ const WORKFLOW_CLIENT = String.raw`function workflowClient(focus) {
   document.addEventListener('click',async event=>{
     const button=event.target.closest('[data-canon-action],[data-candidate-action]');if(!button)return;
     const action=button.dataset.canonAction||button.dataset.candidateAction;
-    if(!confirm(action.startsWith('approve')?'Apply this reviewed canonical change as a new revision?':action==='revert'?'Create a reversing proposal for separate review?':'Submit this review decision?'))return;
+    if(!await confirmAction(action.startsWith('approve')?'Apply this reviewed canonical change as a new revision?':action==='revert'?'Create a reversing proposal for separate review?':'Submit this review decision?'))return;
     button.disabled=true;
     try{await api((button.dataset.canonAction?'/v1/intelligence/canonical/change-sets/':'/v1/intelligence/candidates/')+encodeURIComponent(button.dataset.id)+'/'+action,'POST',{});location.reload();}catch(error){message(error.message);button.disabled=false;}
   });
   const sourceFilter=document.getElementById('source-filter');if(sourceFilter)sourceFilter.addEventListener('input',()=>{for(const row of document.querySelectorAll('[data-source-search]'))row.hidden=!row.dataset.sourceSearch.includes(sourceFilter.value.toLowerCase());});
   const sourceSort=document.getElementById('source-sort');if(sourceSort)sourceSort.addEventListener('change',()=>{const rows=[...document.querySelectorAll('[data-source-search]')];rows.sort((a,b)=>sourceSort.value==='name'?a.dataset.sourceName.localeCompare(b.dataset.sourceName):b.dataset.sourceUpdated.localeCompare(a.dataset.sourceUpdated));document.getElementById('source-library').append(...rows);});
   if(focus==='continuity')ideas();
+  if(focus==='command')api('/v1/command/configuration').then(result=>{const out=document.getElementById('command-configuration');out.replaceChildren();for(const [key,value] of Object.entries(result)){out.append(node('h3',key.replaceAll('_',' ')));const pre=node('pre',JSON.stringify(value,null,2));pre.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere';out.append(pre);}}).catch(error=>{document.getElementById('command-configuration').textContent=error.message;});
 }`;

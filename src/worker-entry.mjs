@@ -35,6 +35,12 @@ export default {
         return Response.json(exportTenant({ platform, tenantId: binding.tenant_id, ideas, commandConfig }), { headers: { "cache-control": "private, no-store", "content-disposition": "attachment; filename=sovereign-export.json", "x-content-type-options": "nosniff" } });
       }
 
+      if (request.method === 'GET' && url.pathname === '/v1/command/configuration') {
+        const {binding,platform}=await loadBoundPlatform({request,authenticate,persistence});
+        const configuration=await persistence.exportCommandConfig(binding.tenant_id);
+        return Response.json({...configuration,principals:platform.store.list('principals',item=>item.tenant_id===binding.tenant_id).map(({principal_id,display_name,kind,state})=>({principal_id,display_name,kind,state})),providers:platform.store.list('providers',item=>item.tenant_id===binding.tenant_id).map(({provider_id,provider_key,display_name})=>({provider_id,provider_key,display_name}))},{headers:{'cache-control':'private, no-store'}});
+      }
+
       if (request.method === "POST" && ["/v1/import/preview", "/v1/import/apply", "/v1/import/rollback"].includes(url.pathname)) {
         const { binding, platform, loaded } = await loadBoundPlatform({ request, authenticate, persistence });
         const body = await jsonBody(request);

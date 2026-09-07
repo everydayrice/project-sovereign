@@ -12,21 +12,22 @@ export class V1TrafficService extends TrafficService {
   orientation({ tenantId, principalId, trafficSessionId, requestedResources = [], permissions = [] }) {
     this.sweepExpired(tenantId);
     const session = this.requireSession(tenantId, principalId, trafficSessionId);
-    const task = session.task_capsule_id ? this.continuity.requireTask(tenantId, session.task_capsule_id) : null;
+    const can = (permission) => permissions.includes(permission) || permissions.includes("*") || permissions.includes("control_plane.use");
+    const task = can("continuity:read") && session.task_capsule_id ? this.continuity.requireTask(tenantId, session.task_capsule_id) : null;
     const resume = task ? this.continuity.resumePacket({
       tenantId,
       taskCapsuleId: task.task_capsule_id,
       currentTraffic: this.currentTraffic({ tenantId })
     }) : null;
 
-    const allTraffic = this.currentTraffic({ tenantId });
-    const traffic = requestedResources.length
+    const allTraffic = can("traffic:read") ? this.currentTraffic({ tenantId }) : [];
+    const traffic = can("traffic:read") && requestedResources.length
       ? requestedResources.flatMap((resource) => this.currentTraffic({ tenantId, resource })).filter(uniqueClaim)
       : allTraffic;
-    const sourceMap = this.sourceMap(tenantId);
-    const records = this.intelligence?.listRecords?.({ tenantId, includeHistorical: false }) ?? [];
-    const canonicalStatus = this.intelligence?.canonicalStatus?.({ tenantId }) ?? { current_canonical_revision: 0 };
-    const installedExtensions = this.installedExtensions(tenantId);
+    const sourceMap = can("sources:read") ? this.sourceMap(tenantId) : [];
+    const records = can("intelligence:read") ? this.intelligence?.listRecords?.({ tenantId, includeHistorical: false }) ?? [] : [];
+    const canonicalStatus = can("intelligence:read") ? this.intelligence?.canonicalStatus?.({ tenantId }) ?? { current_canonical_revision: 0 } : null;
+    const installedExtensions = can("extensions:use") ? this.installedExtensions(tenantId) : [];
     const entities = recordPointers(records, "entity");
     const projects = recordPointers(records, "project");
     const domains = recordPointers(records, "domain");
@@ -41,7 +42,10 @@ export class V1TrafficService extends TrafficService {
         display_name: tenant.display_name,
         command_display_name: tenant.command_display_name
       },
+      tenant_id: tenantId,
       principal_id: principalId,
+      objective: session.objective,
+      workspaces: can("command:read") ? this.command.listWorkspaces(tenantId).map(({ workspace_id, display_name, slug }) => ({ workspace_id, display_name, slug })) : [],
       traffic_session_id: session.traffic_session_id,
       actor: actor ? this.command.actorDescriptor(actor) : null,
       task: task ? taskPointer(task) : null,
@@ -68,12 +72,14 @@ export class V1TrafficService extends TrafficService {
         resumable: resume.resumable
       } : null,
       continuity_pointers: task ? [task.task_capsule_id] : [],
-      intelligence: {
+      recent_checkpoints: task ? this.continuity.recentCheckpoints(tenantId, task.task_capsule_id) : [],
+      intelligence_pointers: can("intelligence:read") ? task?.intelligence_references ?? [] : [],
+      intelligence: canonicalStatus ? {
         current_canonical_revision: Number(canonicalStatus.current_canonical_revision ?? 0),
         active_record_count: Number(canonicalStatus.active_record_count ?? records.length),
         unresolved_candidate_count: Number(canonicalStatus.pending_candidate_count ?? this.store.list("candidateIntelligence", (candidate) => candidate.tenant_id === tenantId && ["proposed", "under_review"].includes(candidate.state)).length),
-        pointers: uniqueStrings([...(task?.intelligence_references ?? []), ...records.slice(0, 20).map((record) => record.canonical_record_id)])
-      },
+        pointers: uniqueStrings([...(task?.intelligence_references ?? []), ...records.map((record) => record.canonical_record_id)])
+      } : null,
       traffic,
       traffic_revision: stableHash(traffic.map(trafficFingerprint)),
       warnings,
@@ -159,7 +165,7 @@ export class V1TrafficService extends TrafficService {
 }
 
 function recordPointers(records, type) {
-  return records.filter((record) => record.record_type === type).slice(0, 20).map((record) => ({
+  return records.filter((record) => record.record_type === type).map((record) => ({
     canonical_record_id: record.canonical_record_id,
     label: record.payload?.name ?? record.payload?.title ?? record.payload?.statement ?? record.payload?.label ?? record.canonical_record_id,
     confidence: record.confidence,
@@ -202,7 +208,7 @@ function handoffPointer(handoff) {
 function privacyBoundaries(sources) {
   return uniqueStrings(sources.map((source) => source.data_classification).filter(Boolean)).map((classification) => ({
     data_classification: classification,
-    enforcement: "command_policy"
+    source_classification: true
   }));
 }
 
@@ -227,10 +233,12 @@ function buildWarnings({ traffic, sources, task, resume }) {
 function availableRoutes(permissions, extensions) {
   const permissionSet = new Set(permissions);
   const routes = ["orientation.refresh"];
-  if (permissionSet.has("intelligence:read") || permissionSet.has("control_plane.use")) routes.push("intelligence.search", "intelligence.get", "source.resolve");
-  if (permissionSet.has("continuity:read") || permissionSet.has("control_plane.use")) routes.push("continuity.resume");
-  if (permissionSet.has("traffic:write") || permissionSet.has("control_plane.use")) routes.push("traffic.claim", "traffic.heartbeat", "traffic.checkpoint", "traffic.release", "traffic.checkout");
-  if (permissionSet.has("intelligence:propose")) routes.push("intelligence.canonical.propose");
+  const can = (scope) => permissionSet.has(scope) || permissionSet.has("*") || permissionSet.has("control_plane.use");
+  if (can("intelligence:read")) routes.push("intelligence.search", "intelligence.get");
+  if (can("sources:read")) routes.push("source.resolve");
+  if (can("continuity:read")) routes.push("continuity.resume");
+  if (can("traffic:write")) routes.push("traffic.claim", "traffic.heartbeat", "traffic.checkpoint", "traffic.release", "traffic.checkout");
+  if (can("intelligence:propose")) routes.push("intelligence.canonical.propose");
   for (const extension of extensions) if (extension.launch_url) routes.push(`extension:${extension.extension_id}`);
   return uniqueStrings(routes);
 }

@@ -1,0 +1,36 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { createSovereignPlatform } from "../src/platform/sovereign-platform.mjs";
+
+test("orientation exposes real terrain only within the actor's granted scopes", () => {
+  let now = new Date("2026-09-07T00:00:00Z");
+  const platform = createSovereignPlatform({ clock: () => now });
+  const tenant = platform.command.createTenant({slug:"orientation-test",displayName:"Independent tenant"});
+  const tenantId = tenant.tenant_id;
+  const principal = platform.command.createPrincipal({tenantId,displayName:"Actor"});
+  const principalId = principal.principal_id;
+  platform.command.createWorkspace({tenantId,principalId,slug:"main",displayName:"Main"});
+  platform.sources.createManagedUpload({tenantId,principalId,fileName:"confidential-project.md",mimeType:"text/markdown",sizeBytes:30});
+  const task = platform.continuity.createTaskCapsule({tenantId,ownerPrincipalId:principalId,title:"Private working state",objective:"Finish investigation"});
+  const result = platform.traffic.checkIn({tenantId,principalId,objective:"Orientation",taskCapsuleId:task.task_capsule_id,actor:{provider:{key:"independent"},surface:{key:"http"}},permissions:["orientation:read"]});
+  const base = {tenantId,principalId,trafficSessionId:result.traffic_session.traffic_session_id};
+  assert.equal(result.orientation.tenant_id,tenantId);
+  assert.equal(result.orientation.tenant.display_name,"Independent tenant");
+  assert.equal(result.orientation.task,null);
+  assert.equal(result.orientation.intelligence,null);
+  assert.deepEqual(result.orientation.source_map,[]);
+  assert.deepEqual(result.orientation.traffic,[]);
+  assert.ok(!JSON.stringify(result.orientation).includes("confidential-project"));
+  const permissions=["orientation:read","sources:read","continuity:read","intelligence:read","command:read","traffic:read"];
+  const full=platform.traffic.orientation({...base,permissions});
+  assert.equal(full.source_map[0].display_name,"confidential-project.md");
+  assert.equal(full.task.title,"Private working state");
+  assert.equal(full.workspaces[0].display_name,"Main");
+  assert.ok(full.available_routes.includes("source.resolve"));
+  assert.ok(!full.available_routes.includes("traffic.claim"));
+  now=new Date(now.getTime()+1000);
+  const repeated=platform.traffic.orientation({...base,permissions});
+  assert.equal(repeated.revision_hash,full.revision_hash);
+  assert.notEqual(repeated.generated_at,full.generated_at);
+  assert.equal(full.retrieval_is_actor_directed,true);
+});

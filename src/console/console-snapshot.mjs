@@ -20,6 +20,7 @@ export function buildConsoleSnapshot({ platform, tenantId }) {
       active_recovery_count: platform.recovery.list(tenantId).filter((session) => session.state === "active").length,
       improvement: platform.improvement.health(tenantId)
     },
+    source_items: platform.store.list("sourceItems", item => item.tenant_id === tenantId),
     workspaces, connectors, extensions, intelligence, sources, initialization_runs: initializationRuns, traffic, continuity,
     recovery: platform.recovery.list(tenantId), audit
   };

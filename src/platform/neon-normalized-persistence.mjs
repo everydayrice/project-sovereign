@@ -266,7 +266,7 @@ export function createNormalizedNeonPersistence(databaseUrl, { httpSql, clientFa
              JOIN intelligence.sources s ON s.source_id=sc.source_id AND s.tenant_id=sc.tenant_id
              JOIN intelligence.source_items si ON si.source_item_id=sc.source_item_id AND si.tenant_id=sc.tenant_id AND si.source_id=sc.source_id
              CROSS JOIN q
-            WHERE sc.tenant_id=$1 AND si.privacy_state='included'
+            WHERE sc.tenant_id=$1 AND si.privacy_state='included' AND COALESCE(s.metadata->>'archived','false') <> 'true' AND COALESCE(s.metadata->>'removed','false') <> 'true'
               AND ($3::text IS NULL OR sc.source_id=$3)
               AND sc.search_vector @@ q.value
          ),
@@ -301,7 +301,7 @@ export function createNormalizedNeonPersistence(databaseUrl, { httpSql, clientFa
            FROM intelligence.source_chunks sc
            JOIN intelligence.sources s ON s.source_id=sc.source_id AND s.tenant_id=sc.tenant_id
              JOIN intelligence.source_items si ON si.source_item_id=sc.source_item_id AND si.tenant_id=sc.tenant_id AND si.source_id=sc.source_id
-          WHERE sc.tenant_id=$1 AND si.privacy_state='included' AND ($3::text IS NULL OR sc.source_id=$3)
+          WHERE sc.tenant_id=$1 AND si.privacy_state='included' AND COALESCE(s.metadata->>'archived','false') <> 'true' AND COALESCE(s.metadata->>'removed','false') <> 'true' AND ($3::text IS NULL OR sc.source_id=$3)
             AND (sc.chunk_text ILIKE '%' || $2 || '%' OR COALESCE(sc.heading,'') ILIKE '%' || $2 || '%' OR s.display_name ILIKE '%' || $2 || '%')
           ORDER BY sc.updated_at DESC, sc.ordinal
           LIMIT $4`,

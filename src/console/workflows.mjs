@@ -65,7 +65,7 @@ function workflowClient(focus) {
       const id=button.dataset.resume || button.dataset.start;const result=await api('/v1/continuity/tasks/'+encodeURIComponent(id)+'/resume');
       if(button.dataset.start){
         if(sessionId)throw Error('Check out your current work before starting another task.');
-        const entered=await api('/v1/control-plane/check-in','POST',{task_capsule_id:id,objective:result.task.objective,actor:{provider:{key:'sovereign',displayName:'Sovereign'},surface:{key:'console',displayName:'Console',type:'web'},externalSessionId:crypto.randomUUID()}});
+        const entered=await api('/v1/control-plane/check-in','POST',{task_capsule_id:id,objective:result.task.objective,actor:{provider:{key:'sovereign',displayName:'Sovereign'},surface:{key:'console',displayName:'Console',type:'human'},externalSessionId:crypto.randomUUID()}});
         sessionId=entered.traffic_session.traffic_session_id;document.getElementById('work-session').hidden=false;document.getElementById('work-session-title').textContent=result.task.title;document.getElementById('work-session').scrollIntoView({behavior:'smooth'});message('Work started. Save a checkpoint when you make progress.');
       }else{
         const out=button.parentElement.querySelector('[data-resume-output]');out.replaceChildren(node('h3','Resume '+result.task.title),node('p','Next action: '+(result.next_action||'Not recorded')));

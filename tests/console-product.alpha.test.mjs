@@ -91,7 +91,7 @@ test("Console task workflow persists edits and resumes checkpoints through brows
   };
   const { task_capsule: task } = await call('/v1/continuity/tasks','POST',{title:'Console task',objective:'Resume real work',next_action:'Inspect evidence'});
   await call('/v1/continuity/tasks/'+task.task_capsule_id,'PATCH',{state:'blocked',blockers:['Waiting for evidence'],next_action:'Request evidence'});
-  const entered = await call('/v1/control-plane/check-in','POST',{task_capsule_id:task.task_capsule_id,objective:task.objective,actor:{provider:{key:'sovereign'},surface:{key:'console',type:'web'},externalSessionId:'console-test'}});
+  const entered = await call('/v1/control-plane/check-in','POST',{task_capsule_id:task.task_capsule_id,objective:task.objective,actor:{provider:{key:'sovereign'},surface:{key:'console',type:'human'},externalSessionId:'console-test'}});
   await call('/v1/control-plane/traffic/sessions/'+entered.traffic_session.traffic_session_id+'/checkpoints','POST',{summary:'Evidence received',next_action:'Review evidence',blockers:[]});
   await call('/v1/control-plane/traffic/sessions/'+entered.traffic_session.traffic_session_id+'/checkout','POST',{next_action:'Review evidence'});
   const resume = await call('/v1/continuity/tasks/'+task.task_capsule_id+'/resume');

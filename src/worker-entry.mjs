@@ -80,6 +80,22 @@ export default {
         return Response.json({ credential });
       }
 
+      if (url.pathname === "/v1/continuity/ideas" || /^\/v1\/continuity\/ideas\/[^/]+$/.test(url.pathname)) {
+        const { binding } = await loadBoundPlatform({ request, authenticate, persistence });
+        if (!ideaStore) throw new SovereignError("idea_store_not_configured", "Ideas are unavailable.", { status: 503 });
+        const base = { tenantId: binding.tenant_id, ownerPrincipalId: binding.principal_id };
+        if (request.method === "GET" && url.pathname === "/v1/continuity/ideas") return Response.json({ ideas: await ideaStore.list(base) });
+        if (request.method === "POST" && url.pathname === "/v1/continuity/ideas") {
+          const body = await jsonBody(request);
+          return Response.json({ idea: await ideaStore.create({ ...base, title: body.title, description: body.description }) }, { status: 201 });
+        }
+        if (request.method === "PATCH" && url.pathname !== "/v1/continuity/ideas") {
+          const body = await jsonBody(request);
+          return Response.json({ idea: await ideaStore.update({ ...base, ideaId: decodeURIComponent(url.pathname.split("/").at(-1)), title: body.title, description: body.description, state: body.state }) });
+        }
+        return Response.json({ message: "Method not allowed." }, { status: 405 });
+      }
+
       // Normal source ingestion is intentionally one user action.
       if (request.method === "POST" && url.pathname === "/v1/sources/upload-file") {
         return await handleUploadWithAutomaticProcessing({ request, env, authenticate, persistence, files });

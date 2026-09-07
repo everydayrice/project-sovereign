@@ -8,6 +8,7 @@ export function buildConsoleSnapshot({ platform, tenantId }) {
   const connectors = platform.sources.listConnectorDefinitions();
   const extensions = platform.store.list("extensionInstallations", (installation) => installation.tenant_id === tenantId);
   const continuity = {
+    tasks: platform.continuity.listTasks(tenantId),
     active_tasks: platform.store.list("taskCapsules", (task) => task.tenant_id === tenantId && ["planned", "active", "waiting", "blocked"].includes(task.state)),
     recent_checkpoints: platform.store.list("trafficCheckpoints", (checkpoint) => checkpoint.tenant_id === tenantId).sort((left, right) => right.created_at.localeCompare(left.created_at)).slice(0, 8)
   };

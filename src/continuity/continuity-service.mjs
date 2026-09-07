@@ -26,6 +26,8 @@ export class ContinuityService {
 
   updateTaskCapsule({ tenantId, taskCapsuleId, title, objective, state, nextAction, blockers, intelligenceReferences }) {
     const task = this.requireTask(tenantId, taskCapsuleId);
+    if (title !== undefined) requireCondition(typeof title === "string" && title.trim(), "task_identity_required", "Task title is required.");
+    if (objective !== undefined) requireCondition(typeof objective === "string" && objective.trim(), "task_identity_required", "Task objective is required.");
     if (state !== undefined) requireCondition(TASK_STATES.has(state), "task_state_invalid", "Task state is invalid.");
     const timestamp = this.now();
     return this.store.update("taskCapsules", task.task_capsule_id, (current) => ({

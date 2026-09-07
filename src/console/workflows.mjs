@@ -19,6 +19,14 @@ export function extensionWorkbench(snapshot) {
     <section class="panel"><h2>Installed extensions</h2>${snapshot.extensions.map(item => `<article><h3>${esc(item.manifest?.name ?? "Extension")}</h3><p>${esc(item.manifest?.publisher)} · ${esc(item.manifest?.version)} · ${esc(item.state)}</p><p>${esc(item.manifest?.description)}</p>${values(item.grants?.filter(grant => grant.state === 'active').flatMap(grant => grant.granted_scopes) ?? [],'No active scopes.')}<p>${esc(item.manifest?.privacy?.retention_behavior)}</p>${['enable','disable','revoke','uninstall'].map(action=>`<button type="button" data-extension-action="${action}" data-extension-id="${esc(item.extension_id)}">${action[0].toUpperCase()+action.slice(1)}</button>`).join(' ')}<p><a href="/console/command/service-credentials">Create a connection credential in Machine access</a>.</p></article>`).join('') || '<p>No extensions installed.</p>'}</section>`;
 }
 
+export function sourceWorkbench(snapshot) {
+  const sources = (snapshot.sources.registry ?? snapshot.sources.sources).filter(source => !source.metadata?.removed);
+  return `<section class="panel"><h2>File library</h2><label>Find a source<input id="source-filter" type="search" placeholder="Name, type or classification"></label><label>Sort<select id="source-sort"><option value="updated">Recently updated</option><option value="name">Name</option></select></label><div id="source-library">${sources.map(source => {
+    const items = (snapshot.source_items ?? []).filter(item => item.source_id === source.source_id);
+    return `<details data-source-name="${esc(source.display_name.toLowerCase())}" data-source-updated="${esc(source.updated_at)}" data-source-search="${esc([source.display_name, source.data_classification, ...items.map(item=>item.mime_type)].join(' ').toLowerCase())}"><summary>${esc(source.display_name)} · ${source.metadata?.archived ? 'Archived' : esc(source.processing_state)}</summary><p>${esc(source.currentness)} · ${esc(source.authority_state)} · ${esc(source.data_classification)}</p><p>Uploaded ${esc(source.created_at)} · Last processed ${esc(source.last_verified_at ?? 'Not yet')}</p>${source.failure_reason ? `<p role="alert">${esc(source.failure_reason)}</p>` : ''}${source.metadata?.processing_note ? `<p>${esc(source.metadata.processing_note)}</p>` : ''}<form method="post" data-workflow="source-update" data-id="${esc(source.source_id)}">${field('display_name','Display name',source.display_name,true)}<label>Classification<select name="data_classification">${['public','internal','confidential','restricted'].map(value=>`<option ${source.data_classification === value ? 'selected' : ''}>${value}</option>`).join('')}</select></label><button>Save source</button></form>${items.map(item => `<p>${esc(item.mime_type)} · ${Number(item.size_bytes ?? 0).toLocaleString()} bytes · ${esc(item.storage_state)} ${item.storage_state === 'stored' && item.privacy_state !== 'excluded' ? `<a href="/v1/sources/${encodeURIComponent(source.source_id)}/items/${encodeURIComponent(item.source_item_id)}/content">Download ${esc(item.display_name)}</a>` : ''}</p>`).join('')}<button type="button" data-source-action="${source.metadata?.archived ? 'restore' : 'archive'}" data-source-id="${esc(source.source_id)}">${source.metadata?.archived ? 'Restore' : 'Archive'}</button> <button type="button" data-source-action="reprocess" data-source-id="${esc(source.source_id)}">Retry processing</button> <button type="button" data-source-action="remove" data-source-id="${esc(source.source_id)}">Remove from library</button><p><small>Removal excludes retrieval and download. Evidence history and retained objects are preserved.</small></p></details>`;
+  }).join('') || '<p>No files yet. Upload a source to begin.</p>'}</div></section>`;
+}
+
 function readable(value) { if (!value || typeof value !== 'object') return String(value ?? ''); return Object.entries(value).map(([key,v]) => `${key.replaceAll('_',' ')}: ${typeof v === 'object' ? readable(v) : v}`).join(' · '); }
 function values(items, empty) { return items.length ? `<ul>${items.map(item=>`<li>${esc(item)}</li>`).join('')}</ul>` : `<p>${esc(empty)}</p>`; }
 
@@ -57,6 +65,7 @@ const WORKFLOW_CLIENT = String.raw`function workflowClient(focus) {
         for(const scope of reviewedManifest.sovereign?.requested_scopes || []){const label=node('label',scope);const input=document.createElement('input');input.type='checkbox';input.name='scope';input.value=scope;label.prepend(input);approval.append(label);}approval.append(node('button','Approve installation'));out.append(approval);message('Review the publisher and requested access before installing.');return;
       }
       else if(action==='extension-install'){if(!reviewedManifest)throw Error('Review a manifest first.');await api('/v1/extensions/install','POST',{manifest:reviewedManifest,granted_scopes:new FormData(form).getAll('scope')});}
+      else if(action==='source-update')await api('/v1/sources/'+id,'PATCH',body);
       else if(action==='task-create')await api('/v1/continuity/tasks','POST',body);
       else if(action==='task-update')await api('/v1/continuity/tasks/'+id,'PATCH',body);
       else if(action==='idea-create'){await api('/v1/continuity/ideas','POST',body);form.reset();await ideas();message('Idea captured.');return;}
@@ -72,6 +81,8 @@ const WORKFLOW_CLIENT = String.raw`function workflowClient(focus) {
     }catch(error){message(error.message);}finally{buttons.forEach(b=>b.disabled=false);}
   });
   document.addEventListener('click',async event=>{
+    const sourceButton=event.target.closest('[data-source-action]');
+    if(sourceButton){const action=sourceButton.dataset.sourceAction;const path='/v1/sources/'+encodeURIComponent(sourceButton.dataset.sourceId);if(action==='remove' && !confirm('Remove this source from the active library and exclude its contents from retrieval and download? Evidence history and retained objects are preserved.'))return;sourceButton.disabled=true;message('Updating source…');try{if(action==='reprocess')await api(path+'/initialize-text','POST',{});else await api(path,'PATCH',action==='remove'?{removed:true}:{archived:action==='archive'});location.reload();}catch(error){message(error.message);sourceButton.disabled=false;}return;}
     const extensionButton=event.target.closest('[data-extension-action]');
     if(extensionButton){const action=extensionButton.dataset.extensionAction;if(!confirm(action+' this extension? Core tasks and intelligence will be preserved.'))return;extensionButton.disabled=true;try{await api('/v1/extensions/'+encodeURIComponent(extensionButton.dataset.extensionId)+'/'+action,'POST',{});location.reload();}catch(error){message(error.message);extensionButton.disabled=false;}return;}
     const button=event.target.closest('[data-resume],[data-start]');if(!button)return;button.disabled=true;
@@ -89,5 +100,7 @@ const WORKFLOW_CLIENT = String.raw`function workflowClient(focus) {
       }
     }catch(error){message(error.message);}finally{button.disabled=false;}
   });
+  const sourceFilter=document.getElementById('source-filter');if(sourceFilter)sourceFilter.addEventListener('input',()=>{for(const row of document.querySelectorAll('[data-source-search]'))row.hidden=!row.dataset.sourceSearch.includes(sourceFilter.value.toLowerCase());});
+  const sourceSort=document.getElementById('source-sort');if(sourceSort)sourceSort.addEventListener('change',()=>{const rows=[...document.querySelectorAll('[data-source-search]')];rows.sort((a,b)=>sourceSort.value==='name'?a.dataset.sourceName.localeCompare(b.dataset.sourceName):b.dataset.sourceUpdated.localeCompare(a.dataset.sourceUpdated));document.getElementById('source-library').append(...rows);});
   if(focus==='continuity')ideas();
 }`;

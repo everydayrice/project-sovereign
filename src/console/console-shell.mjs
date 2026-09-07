@@ -1,4 +1,4 @@
-import { continuityWorkbench, recoveryWorkbench, extensionWorkbench, workflowAssets } from "./workflows.mjs";
+import { continuityWorkbench, recoveryWorkbench, extensionWorkbench, sourceWorkbench, workflowAssets } from "./workflows.mjs";
 const NAVIGATION = [
   ["home", "Home"], ["command", "Command"], ["intelligence", "Intelligence"], ["control-plane", "Control Plane"],
   ["continuity", "Continuity"], ["sources", "Sources / Storage"], ["integrations", "Integrations"],
@@ -24,7 +24,7 @@ export function consoleShellHtml(snapshot, focus = "home") {
           : focus === "audit" ? auditView(snapshot)
             : homeView(snapshot);
   const nav = NAVIGATION.map(([key, label]) => `<a class="${focus === key ? "active" : ""}" href="/console/${key}">${escapeHtml(label)}</a>`).join("");
-  return pageHtml(`${snapshot.tenant.command_display_name} · Sovereign`, `<div class="app-shell"><aside><a class="wordmark" href="/console">${escapeHtml(snapshot.tenant.command_display_name)}</a><nav>${nav}</nav><a class="recovery-link" href="/console/audit">Trust check</a></aside><main class="console"><header><div><p class="eyebrow">${escapeHtml(snapshot.tenant.display_name)}</p><h1>${titleFor(focus)}</h1></div><span class="status ${escapeHtml(snapshot.home.readiness.state)}">${escapeHtml(snapshot.home.readiness.label)}</span></header>${body}${["continuity", "audit", "extensions"].includes(focus) ? workflowAssets(focus) : ""}</main></div>`);
+  return pageHtml(`${snapshot.tenant.command_display_name} · Sovereign`, `<div class="app-shell"><aside><a class="wordmark" href="/console">${escapeHtml(snapshot.tenant.command_display_name)}</a><nav>${nav}</nav><a class="recovery-link" href="/console/audit">Trust check</a></aside><main class="console"><header><div><p class="eyebrow">${escapeHtml(snapshot.tenant.display_name)}</p><h1>${titleFor(focus)}</h1></div><span class="status ${escapeHtml(snapshot.home.readiness.state)}">${escapeHtml(snapshot.home.readiness.label)}</span></header>${body}${["continuity", "audit", "extensions", "sources"].includes(focus) ? workflowAssets(focus) : ""}</main></div>`);
 }
 
 function homeView(snapshot) {
@@ -41,7 +41,7 @@ function commandView(snapshot) {
 }
 
 function sourcesView(snapshot) {
-  return `<section class="cards"><article><span>Connected</span><strong>${snapshot.sources.connected}</strong><p>Sources with an active connection</p></article><article><span>Inventoried</span><strong>${snapshot.sources.inventoried}</strong><p>Found; not necessarily understood</p></article><article><span>Analyzed</span><strong>${snapshot.sources.analyzed}</strong><p>Available to initialization and Study</p></article><article><span>Needs attention</span><strong>${snapshot.sources.failed + snapshot.sources.stale + snapshot.sources.partial}</strong><p>Failed, stale, or partial sources remain visible</p></article></section><section class="panel"><div class="panel-header"><h2>Source registry</h2><span>External sources, uploads, snapshots, and live systems</span></div>${sourceTable(snapshot.sources.sources)}</section><section class="panel"><div class="panel-header"><h2>Initialization runs</h2><span>Coverage is measured, not guessed</span></div>${initializationList(snapshot.initialization_runs)}</section>`;
+  return `${sourceWorkbench(snapshot)}<section class="cards"><article><span>Connected</span><strong>${snapshot.sources.connected}</strong><p>Sources with an active connection</p></article><article><span>Inventoried</span><strong>${snapshot.sources.inventoried}</strong><p>Found; not necessarily understood</p></article><article><span>Analyzed</span><strong>${snapshot.sources.analyzed}</strong><p>Available to initialization and Study</p></article><article><span>Needs attention</span><strong>${snapshot.sources.failed + snapshot.sources.stale + snapshot.sources.partial}</strong><p>Failed, stale, or partial sources remain visible</p></article></section><section class="panel"><div class="panel-header"><h2>Source registry</h2><span>External sources, uploads, snapshots, and live systems</span></div>${sourceTable(snapshot.sources.sources)}</section><section class="panel"><div class="panel-header"><h2>Initialization runs</h2><span>Coverage is measured, not guessed</span></div>${initializationList(snapshot.initialization_runs)}</section>`;
 }
 
 function integrationsView(snapshot) {

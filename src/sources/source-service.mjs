@@ -132,12 +132,30 @@ export class SourceService {
     }));
   }
 
+  updateSource({ tenantId, principalId, sourceId, displayName, dataClassification, archived, removed }) {
+    const source = this.store.requireTenant("sources", sourceId, tenantId);
+    if (displayName !== undefined) requireCondition(typeof displayName === "string" && displayName.trim(), "source_name_required", "Source name is required.");
+    if (dataClassification !== undefined) requireCondition(["public", "internal", "confidential", "restricted"].includes(dataClassification), "source_classification_invalid", "Invalid classification.");
+    if (archived !== undefined) requireCondition(typeof archived === "boolean", "source_archive_invalid", "Archive must be a boolean.");
+    requireCondition(removed === undefined || removed === true, "source_removal_invalid", "Removal must be explicitly confirmed.");
+    const timestamp = this.now();
+    const updated = this.store.update("sources", sourceId, { ...source,
+      display_name: displayName?.trim() ?? source.display_name, data_classification: dataClassification ?? source.data_classification,
+      metadata: { ...source.metadata, ...(archived !== undefined ? { archived } : {}), ...(removed ? { removed: true, archived: true, removed_at: timestamp } : {}) },
+      revision: source.revision + 1, updated_at: timestamp
+    });
+    if (removed) for (const item of this.store.list("sourceItems", item => item.tenant_id === tenantId && item.source_id === sourceId)) this.store.update("sourceItems", item.source_item_id, { privacy_state: "excluded", updated_at: timestamp });
+    this.store.put("auditEvents", { audit_event_id: newId("aud"), tenant_id: tenantId, principal_id: principalId, event_type: removed ? "source.removed" : "source.updated", subject_type: "source", subject_id: sourceId, outcome: "success", metadata: { archived: updated.metadata.archived ?? false, previous_classification: source.data_classification, classification: updated.data_classification }, occurred_at: timestamp });
+    return updated;
+  }
+
   listSources(tenantId) {
     return this.store.list("sources", (source) => source.tenant_id === tenantId).sort((left, right) => right.updated_at.localeCompare(left.updated_at));
   }
 
   sourceHealth(tenantId) {
-    const sources = this.listSources(tenantId);
+    const registry = this.listSources(tenantId);
+    const sources = registry.filter(source => !source.metadata?.archived && !source.metadata?.removed);
     return {
       total: sources.length,
       connected: sources.filter((source) => source.connection_state === "connected").length,
@@ -147,7 +165,7 @@ export class SourceService {
       stale: sources.filter((source) => source.currentness === "stale").length,
       failed: sources.filter((source) => source.health_state === "failed").length,
       partial: sources.filter((source) => source.currentness === "partial" || source.processing_state === "partial").length,
-      sources
+      sources, registry
     };
   }
 

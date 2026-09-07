@@ -164,13 +164,19 @@ async function processStoredSource({ request, sourceId, authenticate, persistenc
   const tenantId = binding.tenant_id;
   const principalId = binding.principal_id;
   const source = platform.store.requireTenant("sources", sourceId, tenantId);
+  if (source.metadata?.removed || source.metadata?.archived) throw new SovereignError("source_inactive", "Restore this source before processing.", { status: 409 });
   const sourceItems = platform.store.list("sourceItems", (item) => item.tenant_id === tenantId && item.source_id === sourceId);
   if (sourceItems.length !== 1) throw new SovereignError("source_item_required", "Automatic direct-upload processing currently expects one stored file per source.", { status: 409 });
   const item = sourceItems[0];
   if (item.storage_state !== "stored") throw new SovereignError("source_object_not_stored", "Source content must be stored in R2 before processing.", { status: 409 });
 
   if (!supportsAutomaticTextIngestion({ fileName: item.display_name, mimeType: item.mime_type })) {
-    if (tolerateUnsupported) return { state: "stored", automatic: true, searchable: false, analyzed: false, canonicalized: false, processing_note: "stored_unparsed_format" };
+    if (tolerateUnsupported) {
+      platform.sources.updateProcessing({ tenantId, sourceId, processingState: "partial", currentness: "partial" });
+      platform.store.update("sources", sourceId, current => ({ ...current, metadata: { ...current.metadata, processing_note: "Stored safely; this format is not analyzed. Upload a text export to make its contents searchable." } }));
+      await persistence.saveTenant({ tenantId, store: platform.store, expectedVersion: loaded.version });
+      return { state: "stored", automatic: true, searchable: false, analyzed: false, canonicalized: false, processing_note: "stored_unparsed_format" };
+    }
     throw new SovereignError("unsupported_initialization_format", "This source format is stored safely but does not yet have an automatic V1 parser.", { status: 415 });
   }
 

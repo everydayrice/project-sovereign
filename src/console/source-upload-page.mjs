@@ -1,13 +1,13 @@
 export function sourceUploadPageHtml() {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Upload source · Sovereign</title><style>${styles}</style></head><body>
   <main class="shell">
-    <a class="wordmark" href="/console/sources">RICE COMMAND</a>
+    <a class="wordmark" href="/console/sources">SOVEREIGN</a>
     <section class="card">
       <p class="eyebrow">Sources / Storage</p>
       <h1>Upload a file</h1>
       <p class="lede">Upload it once. Sovereign stores it in managed R2 storage and automatically processes supported content. You do not need to initialize the file or review every extracted statement.</p>
-      <form id="upload-form">
-        <label>File<input id="file" name="file" type="file" required></label>
+      <form id="upload-form" method="post"><p>Choose files or drop them onto the file control. Maximum 25 MB per file.</p>
+        <label>File<input id="file" name="file" type="file" multiple required></label>
         <label>Data classification
           <select name="data_classification">
             <option value="internal" selected>Internal</option>
@@ -28,23 +28,23 @@ export function sourceUploadPageHtml() {
     const submit = document.getElementById('submit');
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
-      const file = document.getElementById('file').files[0];
-      if (!file) return;
+      const files = [...document.getElementById('file').files];
+      if (!files.length) return;
       submit.disabled = true;
-      status.textContent = 'Uploading and processing ' + file.name + '…';
-      const data = new FormData(form);
-      try {
-        const response = await fetch('/v1/sources/upload-file', { method: 'POST', credentials: 'same-origin', body: data });
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(payload.message || 'Upload failed.');
-        status.textContent = payload.processing?.analyzed
-          ? 'Uploaded and processed. Opening Sources / Storage…'
-          : 'Uploaded. Opening Sources / Storage…';
-        window.location.assign('/console/sources');
-      } catch (error) {
-        status.textContent = error.message || 'Upload failed.';
-        submit.disabled = false;
+      const failures=[];let completed=0;
+      for (const file of files) {
+        status.textContent = 'Uploading and processing '+file.name+' ('+(completed+1)+'/'+files.length+')…';
+        const data = new FormData();data.set('file',file);data.set('data_classification',new FormData(form).get('data_classification'));
+        try {
+          const response = await fetch('/v1/sources/upload-file',{method:'POST',credentials:'same-origin',body:data});
+          const payload=await response.json().catch(()=>({}));
+          if(!response.ok)throw Error(payload.message||'Upload failed.');
+          completed++;
+        }catch(error){failures.push(file.name+': '+error.message);}
       }
+      status.textContent=completed+' file(s) stored. '+failures.join(' ');
+      submit.disabled=false;
+      if(!failures.length)window.location.assign('/console/sources');
     });
   </script>
   </body></html>`;

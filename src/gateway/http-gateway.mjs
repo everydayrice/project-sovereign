@@ -88,6 +88,8 @@ async function route({ request, url, auth, platform, files }) {
     const body = await bodyJson(request);
     return json({ source: sources.createManagedUpload({ ...base, fileName: body.file_name, mimeType: body.mime_type, sizeBytes: body.size_bytes, contentHash: body.content_hash, classification: body.data_classification, locator: body.locator }) }, 201);
   }
+  const sourceUpdate = /^\/v1\/sources\/([^/]+)$/.exec(path);
+  if (request.method === "PATCH" && sourceUpdate) { const body = await bodyJson(request); return json({ source: sources.updateSource({ ...base, sourceId: sourceUpdate[1], displayName: body.display_name, dataClassification: body.data_classification, archived: body.archived, removed: body.removed }) }); }
   const sourceInventory = /^\/v1\/sources\/([^/]+)\/inventory$/.exec(path);
   if (request.method === "POST" && sourceInventory) { const body = await bodyJson(request); return json(sources.recordInventory({ tenantId: auth.tenantId, sourceId: sourceInventory[1], items: body.items ?? [], excludedCount: body.excluded_count ?? 0 })); }
   const sourceFailure = /^\/v1\/sources\/([^/]+)\/failure$/.exec(path);

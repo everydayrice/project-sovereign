@@ -141,7 +141,7 @@ const WORKFLOW_CLIENT = String.raw`function workflowClient(focus) {
         const out=button.parentElement.querySelector('[data-resume-output]');out.replaceChildren(node('h3','Resume '+result.task.title),node('p','Next action: '+(result.next_action||'Not recorded')));
         for(const blocker of result.blockers)out.append(node('p','Blocked: '+blocker));
         for(const checkpoint of result.recent_checkpoints)out.append(node('p',checkpoint.summary));
-        for(const reference of result.task.intelligence_references||[])for(const checkpoint of reference.legacy_checkpoints||[])out.append(node('p','Legacy history · '+(checkpoint.created_at||checkpoint.timestamp||'date unknown')+' · '+checkpoint.summary));
+        for(const reference of result.task.intelligence_references||[])for(const checkpoint of reference.legacy_checkpoints||[])out.append(node('p','Legacy history · '+(checkpoint.created_at||checkpoint.recorded_at||checkpoint.timestamp||'date unknown')+' · '+checkpoint.summary));
         if(result.pending_handoff)out.append(node('p','Handoff: '+result.pending_handoff.summary));
       }
     }catch(error){message(error.message);}finally{button.disabled=false;}

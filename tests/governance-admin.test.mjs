@@ -1,0 +1,20 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {manageGovernance,validatePolicy} from '../src/command/governance-admin.mjs';
+import {createSovereignPlatform} from '../src/platform/sovereign-platform.mjs';
+
+function connection({authorized=true,owners=1}={}){const statements=[];return {statements,makeClient:()=>({connect:async()=>{},end:async()=>{},query:async(sql,args)=>{statements.push([sql,args]);if(sql.startsWith('SELECT version'))return {rows:[{version:4}]};if(sql.startsWith('SELECT 1 FROM command.principal_role_bindings'))return {rows:authorized?[{ok:1}]:[]};if(sql.startsWith('SELECT count(DISTINCT'))return {rows:[{count:owners}]};return {rows:[{role_id:'role',principal_id:'owner'}]};}})};}
+test('Governance rechecks authorization after tenant lock and prevents last Owner removal',async()=>{
+ for(const config of [{authorized:false,code:'command_permission_denied'},{owners:0,code:'last_owner_required'}]){const db=connection(config);await assert.rejects(manageGovernance({...db,tenantId:'tenant',principalId:'owner',action:'role_revoke',input:{principal_id:'owner',role_id:'role'}}),{code:config.code});assert.equal(db.statements.at(-1)[0],'ROLLBACK');assert.ok(!db.statements.some(([sql])=>sql==='COMMIT'));assert.ok(db.statements[1][0].includes('FOR UPDATE'));}
+});
+test('Governance validates supported rules and commits audit plus snapshot version',async()=>{
+ assert.throws(()=>validatePolicy('approval',{require_human:false}),{code:'policy_human_review_required'});assert.throws(()=>validatePolicy('traffic',{leaseTtlSeconds:0}),{code:'policy_lease_invalid'});assert.throws(()=>validatePolicy('privacy',{default_classification:'public',minimum_classification:'restricted'}),{code:'policy_classification_invalid'});const db=connection();await manageGovernance({...db,tenantId:'tenant',principalId:'owner',action:'role_create',input:{name:'Reviewer',permissions:['intelligence.canonical.approve']}});assert.ok(db.statements.some(([sql])=>sql.startsWith('INSERT INTO audit.events')));assert.ok(db.statements.some(([sql])=>sql.includes('version=version+1')));assert.equal(db.statements.at(-1)[0],'COMMIT');
+});
+test('Privacy and traffic policies are tenant scoped and apply to new source and lease operations',()=>{
+ const p=createSovereignPlatform();const a=p.command.createTenant({slug:'policy-one',displayName:'One'});const b=p.command.createTenant({slug:'policy-two',displayName:'Two'});const owner=p.command.createPrincipal({tenantId:a.tenant_id,displayName:'Owner'});const effective_at='2020-01-01T00:00:00Z';p.store.put('policies',{policy_id:'privacy',tenant_id:a.tenant_id,policy_type:'privacy',state:'active',effective_at,rules:{default_classification:'confidential',minimum_classification:'confidential'}});p.store.put('policies',{policy_id:'traffic',tenant_id:a.tenant_id,policy_type:'traffic',state:'active',effective_at,rules:{leaseTtlSeconds:900}});
+ assert.equal(p.sources.classification(a.tenant_id), 'confidential');assert.equal(p.sources.classification(b.tenant_id),'internal');assert.throws(()=>p.sources.createManagedUpload({tenantId:a.tenant_id,principalId:owner.principal_id,fileName:'test.txt',sizeBytes:1,classification:'public'}),{code:'source_classification_policy'});assert.equal(p.store.list('sources').length,0);
+ assert.ok(Date.parse(p.traffic.leaseExpiry(a.tenant_id))-Date.parse(p.traffic.leaseExpiry(b.tenant_id))>=599000);
+});
+test('Stale role edits roll back before audit or commit',async()=>{
+ const db=connection();const original=db.makeClient;db.makeClient=()=>{const client=original();const query=client.query;client.query=async(q,args)=>{const result=await query(q,args);return q.startsWith('UPDATE command.roles')?{rows:[]}:result;};return client;};await assert.rejects(manageGovernance({...db,tenantId:'tenant',principalId:'owner',action:'role_update',input:{role_id:'role',name:'Reviewer',permissions:[],expected_updated_at:'2020-01-01T00:00:00Z'}}),{code:'role_changed'});assert.equal(db.statements.at(-1)[0],'ROLLBACK');assert.ok(!db.statements.some(([q])=>q.startsWith('INSERT INTO audit.events')));
+});

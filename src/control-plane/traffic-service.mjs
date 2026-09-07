@@ -1,3 +1,4 @@
+import {activePolicy} from '../command/governance-admin.mjs';
 import { newId, stableHash } from "../platform/ids.mjs";
 import { SovereignError, requireCondition } from "../platform/errors.mjs";
 import { DEFAULT_TRAFFIC_POLICY, evaluateClaim } from "./collision-policy.mjs";
@@ -29,7 +30,7 @@ export class TrafficService {
       actor_instance_id: actorInstance.actor_instance_id, task_capsule_id: taskCapsuleId ?? null,
       parent_traffic_session_id: parentTrafficSessionId ?? null, objective: objective.trim(), state: "active",
       context_appetite: contextAppetite, checked_in_at: timestamp, last_heartbeat_at: timestamp,
-      lease_expires_at: this.leaseExpiry(), checked_out_at: null, next_action: null, outcome: null,
+      lease_expires_at: this.leaseExpiry(tenantId), checked_out_at: null, next_action: null, outcome: null,
       revision: 1, created_at: timestamp, updated_at: timestamp
     });
     const orientation = this.orientation({ tenantId, principalId, trafficSessionId: session.traffic_session_id, requestedResources, permissions });
@@ -63,7 +64,7 @@ export class TrafficService {
     const requested = {
       resource_claim_id: newId("rcl"), tenant_id: tenantId, traffic_session_id: trafficSessionId,
       actor_instance_id: session.actor_instance_id, resource_id: managedResource.resource_id, intent, scope,
-      state: "planned", lease_expires_at: this.leaseExpiry()
+      state: "planned", lease_expires_at: this.leaseExpiry(tenantId)
     };
     const evaluation = this.evaluate(tenantId, requested);
     const timestamp = this.now();
@@ -86,7 +87,7 @@ export class TrafficService {
     }
     const timestamp = this.now();
     const activeClaim = this.store.update("resourceClaims", resourceClaimId, (current) => ({
-      ...current, state: "active", activated_at: current.activated_at ?? timestamp, lease_expires_at: this.leaseExpiry(),
+      ...current, state: "active", activated_at: current.activated_at ?? timestamp, lease_expires_at: this.leaseExpiry(tenantId),
       coordination_level: evaluation.coordination_level, revision: current.revision + 1, updated_at: timestamp
     }));
     this.heartbeat({ tenantId, principalId, trafficSessionId: session.traffic_session_id, silent: true });
@@ -98,10 +99,10 @@ export class TrafficService {
     const session = this.requireLiveSession(tenantId, principalId, trafficSessionId);
     const timestamp = this.now();
     const updatedSession = this.store.update("trafficSessions", trafficSessionId, (current) => ({
-      ...current, last_heartbeat_at: timestamp, lease_expires_at: this.leaseExpiry(), revision: current.revision + 1, updated_at: timestamp
+      ...current, last_heartbeat_at: timestamp, lease_expires_at: this.leaseExpiry(tenantId), revision: current.revision + 1, updated_at: timestamp
     }));
     for (const claim of this.store.list("resourceClaims", (candidate) => candidate.traffic_session_id === trafficSessionId && OPEN_CLAIM_STATES.has(candidate.state))) {
-      this.store.update("resourceClaims", claim.resource_claim_id, (current) => ({ ...current, lease_expires_at: this.leaseExpiry(), revision: current.revision + 1, updated_at: timestamp }));
+      this.store.update("resourceClaims", claim.resource_claim_id, (current) => ({ ...current, lease_expires_at: this.leaseExpiry(tenantId), revision: current.revision + 1, updated_at: timestamp }));
     }
     if (!silent) this.audit({ tenantId, principalId, actorInstanceId: session.actor_instance_id, trafficSessionId, eventType: "control_plane.heartbeat", subjectType: "traffic_session", subjectId: trafficSessionId });
     return updatedSession;
@@ -233,7 +234,7 @@ export class TrafficService {
     return this.store.put("auditEvents", event);
   }
 
-  leaseExpiry() { return new Date(this.clock().getTime() + this.policy.leaseTtlSeconds * 1000).toISOString(); }
+  leaseExpiry(tenantId) { return new Date(this.clock().getTime() + (activePolicy(this.store,tenantId,"traffic").leaseTtlSeconds ?? this.policy.leaseTtlSeconds) * 1000).toISOString(); }
   now() { return this.clock().toISOString(); }
 }
 

@@ -1,4 +1,7 @@
-export function sourceUploadPageHtml() {
+export function sourceUploadPageHtml({privacyPolicy={}}={}) {
+  const classifications=["public","internal","confidential","restricted"];
+  const allowed=classifications.slice(Math.max(0,classifications.indexOf(privacyPolicy.minimum_classification)));
+  const selected=privacyPolicy.default_classification??"internal";
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Upload source · Sovereign</title><style>${styles}</style></head><body>
   <main class="shell">
     <a class="wordmark" href="/console/sources">SOVEREIGN</a>
@@ -10,10 +13,7 @@ export function sourceUploadPageHtml() {
         <label>File<input id="file" name="file" type="file" multiple required></label>
         <label>Data classification
           <select name="data_classification">
-            <option value="internal" selected>Internal</option>
-            <option value="confidential">Confidential</option>
-            <option value="restricted">Restricted</option>
-            <option value="public">Public</option>
+            ${allowed.map(value=>`<option value="${value}" ${value===selected?'selected':''}>${value[0].toUpperCase()+value.slice(1)}</option>`).join('')}
           </select>
         </label>
         <button id="submit" type="submit">Upload file</button>

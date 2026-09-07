@@ -1,7 +1,7 @@
 import { SovereignError } from "./errors.mjs";
 
 const COLLECTIONS = [
-  "tenants", "workspaces", "principals", "providers", "surfaces", "actorInstances",
+  "tenants", "workspaces", "principals", "policies", "providers", "surfaces", "actorInstances",
   "trafficSessions", "resources", "resourceClaims", "trafficCheckpoints", "taskCapsules",
   "sessionCapsules", "candidateMemories", "ideas", "handoffs", "extensions", "extensionInstallations",
   "extensionGrants", "extensionEventSubscriptions", "extensionEventOutbox", "auditEvents", "sources", "sourceItems", "connectorDefinitions",
@@ -111,7 +111,7 @@ export function sovereignStoreCollections() {
 
 function singular(collection) {
   return ({
-    principals: "principal", providers: "provider", surfaces: "surface", actorInstances: "actor_instance",
+    policies: "policy", principals: "principal", providers: "provider", surfaces: "surface", actorInstances: "actor_instance",
     trafficSessions: "traffic_session", resources: "resource", resourceClaims: "resource_claim",
     trafficCheckpoints: "traffic_checkpoint", taskCapsules: "task_capsule", sessionCapsules: "session_capsule",
     candidateMemories: "candidate_memory", ideas: "idea", extensions: "extension", extensionInstallations: "extension_installation",

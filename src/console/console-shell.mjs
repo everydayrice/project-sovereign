@@ -1,4 +1,4 @@
-import { continuityWorkbench, recoveryWorkbench, workflowAssets } from "./workflows.mjs";
+import { continuityWorkbench, recoveryWorkbench, extensionWorkbench, workflowAssets } from "./workflows.mjs";
 const NAVIGATION = [
   ["home", "Home"], ["command", "Command"], ["intelligence", "Intelligence"], ["control-plane", "Control Plane"],
   ["continuity", "Continuity"], ["sources", "Sources / Storage"], ["integrations", "Integrations"],
@@ -24,7 +24,7 @@ export function consoleShellHtml(snapshot, focus = "home") {
           : focus === "audit" ? auditView(snapshot)
             : homeView(snapshot);
   const nav = NAVIGATION.map(([key, label]) => `<a class="${focus === key ? "active" : ""}" href="/console/${key}">${escapeHtml(label)}</a>`).join("");
-  return pageHtml(`${snapshot.tenant.command_display_name} · Sovereign`, `<div class="app-shell"><aside><a class="wordmark" href="/console">${escapeHtml(snapshot.tenant.command_display_name)}</a><nav>${nav}</nav><a class="recovery-link" href="/console/audit">Trust check</a></aside><main class="console"><header><div><p class="eyebrow">${escapeHtml(snapshot.tenant.display_name)}</p><h1>${titleFor(focus)}</h1></div><span class="status ${escapeHtml(snapshot.home.readiness.state)}">${escapeHtml(snapshot.home.readiness.label)}</span></header>${body}${["continuity", "audit"].includes(focus) ? workflowAssets(focus) : ""}</main></div>`);
+  return pageHtml(`${snapshot.tenant.command_display_name} · Sovereign`, `<div class="app-shell"><aside><a class="wordmark" href="/console">${escapeHtml(snapshot.tenant.command_display_name)}</a><nav>${nav}</nav><a class="recovery-link" href="/console/audit">Trust check</a></aside><main class="console"><header><div><p class="eyebrow">${escapeHtml(snapshot.tenant.display_name)}</p><h1>${titleFor(focus)}</h1></div><span class="status ${escapeHtml(snapshot.home.readiness.state)}">${escapeHtml(snapshot.home.readiness.label)}</span></header>${body}${["continuity", "audit", "extensions"].includes(focus) ? workflowAssets(focus) : ""}</main></div>`);
 }
 
 function homeView(snapshot) {
@@ -49,7 +49,7 @@ function integrationsView(snapshot) {
 }
 
 function extensionsView(snapshot) {
-  return `<section class="cards"><article><span>Installed extensions</span><strong>${snapshot.extensions.length}</strong><p>Every extension is explicitly installed and scoped</p></article><article><span>Marketplace</span><strong>Off</strong><p>Private/manual installation only in this alpha</p></article></section><section class="panel"><div class="panel-header"><h2>Extension access</h2><span>Extensions never grant themselves authority</span></div>${list(snapshot.extensions.map((item) => `${item.extension_id} · ${item.state}`), "No extensions are installed. Sovereign core remains fully usable without them.")}</section>`;
+  return `${extensionWorkbench(snapshot)}<section class="cards"><article><span>Installed extensions</span><strong>${snapshot.extensions.length}</strong><p>Every extension is explicitly installed and scoped</p></article><article><span>Marketplace</span><strong>Off</strong><p>Private/manual installation only in this alpha</p></article></section><section class="panel"><div class="panel-header"><h2>Extension access</h2><span>Extensions never grant themselves authority</span></div>${list(snapshot.extensions.map((item) => `${item.extension_id} · ${item.state}`), "No extensions are installed. Sovereign core remains fully usable without them.")}</section>`;
 }
 
 function trafficView(snapshot) { return `<section class="cards"><article><span>Live sessions</span><strong>${snapshot.traffic.active_session_count}</strong><p>Separate chats and coding runs stay distinct</p></article><article><span>Open claims</span><strong>${snapshot.traffic.claims.length}</strong><p>Claims are scoped coordination, not global locks</p></article></section><section class="panel"><div class="panel-header"><h2>Control Plane traffic board</h2><span>Current actors, resources, intent, and leases</span></div>${trafficTable(snapshot.traffic.claims)}</section>`; }

@@ -24,6 +24,9 @@ export function createServiceHttpGateway({ persistence, retrieval, authenticateS
 
 function routeFor(method, pathname) {
   const path = pathname.replace(/^\/api\/v1/, "") || "/";
+  if (method === "GET" && path === "/extensions/events") return route("extension_events", async () => ({}));
+  const eventAck = /^\/extensions\/events\/([^/]+)\/acknowledge$/.exec(path);
+  if (method === "POST" && eventAck) return route("extension_acknowledge", async () => ({ event_id: decodeURIComponent(eventAck[1]) }));
   if (method === "POST" && path === "/check-in") return route("check_in", bodyArgs, 201);
   if (method === "POST" && path === "/orient") return route("orient", bodyArgs);
   if (method === "GET" && path === "/search") return route("search", searchArgs);

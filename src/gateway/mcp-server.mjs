@@ -30,6 +30,8 @@ const TOOL_DEFINITIONS = Object.freeze([
   tool("resume", "Build a durable resume packet for a Task Capsule without transcript copying.", {
     type: "object", required: ["task_capsule_id"], properties: { task_capsule_id: { type: "string" } }
   }),
+  tool("extension_events", "Read pending events for the authenticated extension installation.", { type: "object", properties: {} }),
+  tool("extension_acknowledge", "Acknowledge a processed extension event; consumers deduplicate by event ID.", { type: "object", properties: { event_id: { type: "string" } }, required: ["event_id"] }),
   tool("task_create", "Create a durable non-canonical Task Capsule.", {
     type: "object", required: ["title","objective"], properties: {
       title: { type: "string" }, objective: { type: "string" }, next_action: { type: "string" }, state: { enum: ["planned","active","waiting","blocked","completed","cancelled"] },

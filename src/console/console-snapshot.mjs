@@ -6,7 +6,7 @@ export function buildConsoleSnapshot({ platform, tenantId }) {
   const traffic = platform.traffic.trafficBoard({ tenantId });
   const workspaces = platform.command.listWorkspaces(tenantId);
   const connectors = platform.sources.listConnectorDefinitions();
-  const extensions = platform.store.list("extensionInstallations", (installation) => installation.tenant_id === tenantId);
+  const extensions = platform.extensions.list(tenantId);
   const continuity = {
     tasks: platform.continuity.listTasks(tenantId),
     active_tasks: platform.store.list("taskCapsules", (task) => task.tenant_id === tenantId && ["planned", "active", "waiting", "blocked"].includes(task.state)),

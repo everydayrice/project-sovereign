@@ -80,6 +80,9 @@ export default {
           }
           if (["GET", "HEAD", "OPTIONS"].includes(request.method)) return;
           if (!auth.tenantId || requestContext.version === null || requestContext.version === undefined) return;
+          const taskChanges = platform.store.exportChanges().taskCapsules ?? [];
+          for (const task of taskChanges) platform.extensions.publish({ tenantId: auth.tenantId, eventType: task.revision === 1 ? "task.created" : "task.updated", subjectType: "task", subjectId: task.task_capsule_id });
+          for (const checkpoint of platform.store.exportChanges().trafficCheckpoints ?? []) platform.extensions.publish({ tenantId: auth.tenantId, eventType: "continuity.checkpoint", subjectType: "checkpoint", subjectId: checkpoint.traffic_checkpoint_id });
           await requestContext.persistence.saveTenant({ tenantId: auth.tenantId, store: platform.store, expectedVersion: requestContext.version });
         }
       });

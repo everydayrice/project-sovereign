@@ -14,15 +14,21 @@ export function recoveryWorkbench(snapshot) {
   return `<section class="panel"><h2>Start a Trust Recovery</h2><p>Inspect evidence and recent changes, preserve the current findings, and pause canonical automation in the affected scope.</p><form method="post" data-workflow="recovery-start">${field('reason','What seems wrong?','',true)}${field('project','Project scope (leave blank for the whole tenant)')}<button>Inspect and pause automation</button></form></section>
   ${snapshot.recovery.map(session => { const findings=session.findings ?? {}; return `<section class="panel"><h2>${esc(session.reason)}</h2><p>${esc(session.state)} · canonical revision ${session.canonical_snapshot_revision}</p><h3>What Sovereign believes</h3>${values((findings.understanding?.summary ?? []).map(item => readable(item.payload)),'No canonical understanding recorded in this scope.')}<h3>What may need attention</h3>${values([...(findings.missing ?? []),...(findings.source_health?.failed_sources ?? []).map(item => `${item.display_name}: failed`),...(findings.source_health?.stale_sources ?? []).map(item => `${item.display_name}: stale`),`${findings.unresolved_candidates?.length ?? 0} unresolved candidates`,`${findings.possible_conflicts?.length ?? 0} possible conflicts`,`${findings.uncertainty?.length ?? 0} uncertain records`],'No findings recorded.')}<h3>Recent changes</h3>${values((findings.canonical?.recent_change_sets ?? []).map(item=>`${item.title}: ${item.state}`),'No recent changes.')}<p><a href="/console/intelligence">Review canonical intelligence</a> · <a href="/console/sources">Inspect supporting sources</a> · <a href="/console/continuity">Review ongoing work</a></p>${session.state === 'active' ? `<form method="post" data-workflow="recovery-complete" data-id="${esc(session.recovery_session_id)}">${field('summary','Review outcome','',true)}<button>Complete recovery and resume automation</button></form>` : ''}</section>`; }).join('')}`;
 }
+export function extensionWorkbench(snapshot) {
+  return `<section class="panel"><h2>Install an extension</h2><p>Paste the publisher's manifest, review its requested access, then choose the scopes to grant.</p><form method="post" data-workflow="extension-review"><label>Extension manifest<textarea name="manifest" rows="8" required></textarea></label><button>Review requested access</button></form><div id="extension-review"></div></section>
+    <section class="panel"><h2>Installed extensions</h2>${snapshot.extensions.map(item => `<article><h3>${esc(item.manifest?.name ?? "Extension")}</h3><p>${esc(item.manifest?.publisher)} · ${esc(item.manifest?.version)} · ${esc(item.state)}</p><p>${esc(item.manifest?.description)}</p>${values(item.grants?.filter(grant => grant.state === 'active').flatMap(grant => grant.granted_scopes) ?? [],'No active scopes.')}<p>${esc(item.manifest?.privacy?.retention_behavior)}</p>${['enable','disable','revoke','uninstall'].map(action=>`<button type="button" data-extension-action="${action}" data-extension-id="${esc(item.extension_id)}">${action[0].toUpperCase()+action.slice(1)}</button>`).join(' ')}<p><a href="/console/command/service-credentials">Create a connection credential in Machine access</a>.</p></article>`).join('') || '<p>No extensions installed.</p>'}</section>`;
+}
+
 function readable(value) { if (!value || typeof value !== 'object') return String(value ?? ''); return Object.entries(value).map(([key,v]) => `${key.replaceAll('_',' ')}: ${typeof v === 'object' ? readable(v) : v}`).join(' · '); }
 function values(items, empty) { return items.length ? `<ul>${items.map(item=>`<li>${esc(item)}</li>`).join('')}</ul>` : `<p>${esc(empty)}</p>`; }
 
 export function workflowAssets(focus) {
-  return `<style>form[data-workflow]{display:grid;gap:12px;margin:16px 0;max-width:760px}form[data-workflow] label{display:grid;gap:5px}input,textarea,select,button{font:inherit}form[data-workflow] input,form[data-workflow] textarea,form[data-workflow] select{width:100%;min-width:0;border:1px solid #ccd1d9;border-radius:7px;padding:10px;background:white;color:#111419}button{cursor:pointer;border:1px solid #cbd0d8;border-radius:7px;padding:10px 14px;background:#f5f6f8;color:#111419;min-height:44px}button:disabled{opacity:.6;cursor:wait}details{border-top:1px solid #e5e7eb;padding:14px 0}summary{cursor:pointer;font-weight:650;overflow-wrap:anywhere}#workflow-status{position:sticky;bottom:12px;background:#eef2ff;padding:14px;border:1px solid #bdcafa;border-radius:8px}#workflow-status:empty{display:none}</style><p id="workflow-status" role="status" aria-live="polite"></p><script>(${WORKFLOW_CLIENT})(${JSON.stringify(focus)})</script>`;
+  return `<style>form[data-workflow]{display:grid;gap:12px;margin:16px 0;max-width:760px}form[data-workflow] label{display:grid;gap:5px}input,textarea,select,button{font:inherit}form[data-workflow] input,form[data-workflow] textarea,form[data-workflow] select{width:100%;min-width:0;border:1px solid #ccd1d9;border-radius:7px;padding:10px;background:white;color:#111419}button{cursor:pointer;border:1px solid #cbd0d8;border-radius:7px;padding:10px 14px;background:#f5f6f8;color:#111419;min-height:44px}form[data-workflow] input[type=checkbox]{width:auto}button:disabled{opacity:.6;cursor:wait}details{border-top:1px solid #e5e7eb;padding:14px 0}summary{cursor:pointer;font-weight:650;overflow-wrap:anywhere}#workflow-status{position:sticky;bottom:12px;background:#eef2ff;padding:14px;border:1px solid #bdcafa;border-radius:8px}#workflow-status:empty{display:none}</style><p id="workflow-status" role="status" aria-live="polite"></p><script>(${WORKFLOW_CLIENT})(${JSON.stringify(focus)})</script>`;
 }
 
 const WORKFLOW_CLIENT = String.raw`function workflowClient(focus) {
   let sessionId=null;
+  let reviewedManifest=null;
   const status=document.getElementById('workflow-status');
   const message=text=>{status.textContent=text;};
   const api=async(path,method='GET',body)=>{
@@ -45,7 +51,13 @@ const WORKFLOW_CLIENT = String.raw`function workflowClient(focus) {
     const action=form.dataset.workflow;const id=encodeURIComponent(form.dataset.id || '');const finish=event.submitter?.name==='finish';
     const buttons=[...form.querySelectorAll('button')];buttons.forEach(b=>b.disabled=true);message('Saving…');
     try {
-      if(action==='task-create')await api('/v1/continuity/tasks','POST',body);
+      if(action==='extension-review'){
+        reviewedManifest=JSON.parse(body.manifest);const out=document.getElementById('extension-review');out.replaceChildren(node('h3',reviewedManifest.name || 'Unnamed extension'),node('p','Publisher: '+reviewedManifest.publisher),node('p',reviewedManifest.description || ''),node('p','Retention: '+reviewedManifest.privacy?.retention_behavior),node('p','Uninstall: '+reviewedManifest.privacy?.uninstall_behavior));
+        const approval=document.createElement('form');approval.method='post';approval.dataset.workflow='extension-install';
+        for(const scope of reviewedManifest.sovereign?.requested_scopes || []){const label=node('label',scope);const input=document.createElement('input');input.type='checkbox';input.name='scope';input.value=scope;label.prepend(input);approval.append(label);}approval.append(node('button','Approve installation'));out.append(approval);message('Review the publisher and requested access before installing.');return;
+      }
+      else if(action==='extension-install'){if(!reviewedManifest)throw Error('Review a manifest first.');await api('/v1/extensions/install','POST',{manifest:reviewedManifest,granted_scopes:new FormData(form).getAll('scope')});}
+      else if(action==='task-create')await api('/v1/continuity/tasks','POST',body);
       else if(action==='task-update')await api('/v1/continuity/tasks/'+id,'PATCH',body);
       else if(action==='idea-create'){await api('/v1/continuity/ideas','POST',body);form.reset();await ideas();message('Idea captured.');return;}
       else if(action==='recovery-start'){await api('/v1/recovery','POST',{reason:body.reason,scope:body.project.trim()?{project:body.project.trim()}:{}});}
@@ -60,6 +72,8 @@ const WORKFLOW_CLIENT = String.raw`function workflowClient(focus) {
     }catch(error){message(error.message);}finally{buttons.forEach(b=>b.disabled=false);}
   });
   document.addEventListener('click',async event=>{
+    const extensionButton=event.target.closest('[data-extension-action]');
+    if(extensionButton){const action=extensionButton.dataset.extensionAction;if(!confirm(action+' this extension? Core tasks and intelligence will be preserved.'))return;extensionButton.disabled=true;try{await api('/v1/extensions/'+encodeURIComponent(extensionButton.dataset.extensionId)+'/'+action,'POST',{});location.reload();}catch(error){message(error.message);extensionButton.disabled=false;}return;}
     const button=event.target.closest('[data-resume],[data-start]');if(!button)return;button.disabled=true;
     try {
       const id=button.dataset.resume || button.dataset.start;const result=await api('/v1/continuity/tasks/'+encodeURIComponent(id)+'/resume');

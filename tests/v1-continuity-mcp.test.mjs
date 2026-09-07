@@ -120,3 +120,17 @@ function fakePersistence(initialState) {
     }
   };
 }
+
+test('MCP reads durable Ideas through the same normalized store as HTTP', async () => {
+  const ctx = fixture();
+  const idea = { idea_id:'idea_shared',title:'Shared across transports',state:'captured' };
+  const server = createMcpServer({
+    persistence:fakePersistence(ctx.platform.store.exportState()),
+    authenticateService:async()=>({tenantId:ctx.tenant.tenant_id,principalId:ctx.principal.principal_id,permissions:['continuity:read','continuity:write']}),
+    ideaStore:{async list({tenantId}){assert.equal(tenantId,ctx.tenant.tenant_id);return [idea];},async create(){return idea;}}
+  });
+  const listed=await (await server.fetch(mcpRequest('tools/call',{name:'continuity_get',arguments:{kind:'ideas'}},1))).json();
+  assert.deepEqual(listed.result.structuredContent.ideas,[idea]);
+  const created=await (await server.fetch(mcpRequest('tools/call',{name:'idea_create',arguments:{title:idea.title}},2))).json();
+  assert.equal(created.result.structuredContent.idea_id,idea.idea_id);
+});

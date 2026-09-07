@@ -32,6 +32,7 @@ export default {
           persistence,
           retrieval,
           authenticateService,
+          ideaStore,
           allowedOrigins: parseOrigins(env.MCP_ALLOWED_ORIGINS)
         }).fetch(request);
       }
@@ -158,8 +159,13 @@ async function processStoredSource({ request, sourceId, authenticate, persistenc
   const object = await files.get({ tenantId, sourceId, sourceItemId: item.source_item_id });
   if (!object) throw new SovereignError("stored_object_not_found", "Stored source object was not found.", { status: 404 });
   const text = typeof object.text === "function" ? await object.text() : await new Response(object.body).text();
-  const ingestion = ingestTextSource({ text, sourceId, sourceItemId: item.source_item_id, fileName: item.display_name, mimeType: item.mime_type });
-  await persistence.replaceSourceChunks({ tenantId, sourceId, sourceItemId: item.source_item_id, chunks: ingestion.chunks });
+  const ingestion = ingestTextSource({
+    text,
+    sourceId,
+    sourceItemId: item.source_item_id,
+    fileName: item.display_name,
+    mimeType: item.mime_type
+  });
 
   const run = platform.initialization.start({ tenantId, principalId, sourceIds: [sourceId], mode: "initialize" });
   const savedCandidates = [];
@@ -178,8 +184,22 @@ async function processStoredSource({ request, sourceId, authenticate, persistenc
   }));
   platform.initialization.recordSourceResult({ tenantId, runId: run.initialization_run_id, sourceId, state: "complete", itemCount: source.item_count, inventoriedItemCount: source.inventoried_item_count, analyzedItemCount: source.inventoried_item_count, candidateCount: savedCandidates.length, excludedCount: source.excluded_item_count, currentness: "current" });
   const completed = platform.initialization.complete({ tenantId, runId: run.initialization_run_id });
-  const save = await persistence.saveTenant({ tenantId, store: platform.store, expectedVersion: loaded.version });
-  return { state: "ready", automatic: true, searchable: ingestion.chunks.length > 0, analyzed: true, parser: ingestion.parser, chunk_count: ingestion.chunks.length, candidate_count: savedCandidates.length, canonicalized: false, initialization_run_id: completed.initialization_run_id, tenant_state_version: save.version };
+  const save = await persistence.saveTenant({ tenantId, store: platform.store, expectedVersion: loaded.version,
+    sourceChunkReplacements: [{ sourceId, sourceItemId: item.source_item_id, chunks: ingestion.chunks }]
+  });
+
+  return {
+    state: "ready",
+    automatic: true,
+    searchable: ingestion.chunks.length > 0,
+    analyzed: true,
+    parser: ingestion.parser,
+    chunk_count: ingestion.chunks.length,
+    candidate_count: savedCandidates.length,
+    canonicalized: false,
+    initialization_run_id: completed.initialization_run_id,
+    tenant_state_version: save.version
+  };
 }
 
 async function handleCandidateProposal({ request, candidateId, authenticate, persistence }) {
@@ -211,7 +231,10 @@ async function loadBoundPlatform({ request, authenticate, persistence }) {
   const binding = await persistence.resolveAuthBinding(auth.authSubject);
   if (!binding) throw new SovereignError("onboarding_required", "Create your Sovereign tenant before using protected Sovereign capabilities.", { status: 409 });
   const loaded = await persistence.loadTenant(binding.tenant_id);
-  return { auth, binding, loaded, platform: createSovereignPlatform({ store: loaded.store }) };
+  const platform = createSovereignPlatform({ store: loaded.store });
+  platform.command.requireActiveTenant(binding.tenant_id);
+  platform.command.requirePrincipal(binding.tenant_id, binding.principal_id);
+  return { auth, binding, loaded, platform };
 }
 
 async function injectAskSovereign(response) {

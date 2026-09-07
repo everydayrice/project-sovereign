@@ -106,21 +106,24 @@ CREATE INDEX extensions_event_outbox_delivery_idx
 CREATE INDEX extensions_event_outbox_tenant_idx
   ON extensions.event_outbox (tenant_id, extension_installation_id, created_at DESC);
 
-DO $$
-DECLARE target text;
-BEGIN
-  FOREACH target IN ARRAY ARRAY[
-    'command.service_credentials',
-    'continuity.ideas',
-    'extensions.event_subscriptions',
-    'extensions.event_outbox'
-  ] LOOP
-    EXECUTE format('ALTER TABLE %s ENABLE ROW LEVEL SECURITY', target);
-    EXECUTE format(
-      'CREATE POLICY tenant_isolation ON %s USING (tenant_id = command.current_tenant_id()) WITH CHECK (tenant_id = command.current_tenant_id())',
-      target
-    );
-  END LOOP;
-END $$;
+ALTER TABLE command.service_credentials ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON command.service_credentials
+  USING (tenant_id = command.current_tenant_id())
+  WITH CHECK (tenant_id = command.current_tenant_id());
+
+ALTER TABLE continuity.ideas ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON continuity.ideas
+  USING (tenant_id = command.current_tenant_id())
+  WITH CHECK (tenant_id = command.current_tenant_id());
+
+ALTER TABLE extensions.event_subscriptions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON extensions.event_subscriptions
+  USING (tenant_id = command.current_tenant_id())
+  WITH CHECK (tenant_id = command.current_tenant_id());
+
+ALTER TABLE extensions.event_outbox ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON extensions.event_outbox
+  USING (tenant_id = command.current_tenant_id())
+  WITH CHECK (tenant_id = command.current_tenant_id());
 
 COMMIT;

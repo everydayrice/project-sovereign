@@ -42,6 +42,22 @@ const TOOL_DEFINITIONS = Object.freeze([
       state: { enum: ["planned","active","waiting","blocked","completed","cancelled"] }, blockers: { type: "array", items: { type: "string" } }, intelligence_references: { type: "array" }
     }
   }),
+  tool("idea_create", "Capture a durable non-canonical Idea.", {
+    type: "object", required: ["title"], properties: {
+      title: { type: "string" }, description: { type: "string" },
+      state: { enum: ["captured", "developing", "parked", "promoted", "archived"] },
+      tags: { type: "array", items: { type: "string" } }, source_references: { type: "array" },
+      intelligence_references: { type: "array" }, task_capsule_id: { type: "string" }
+    }
+  }),
+  tool("idea_update", "Update a durable non-canonical Idea.", {
+    type: "object", required: ["idea_id"], properties: {
+      idea_id: { type: "string" }, title: { type: "string" }, description: { type: "string" },
+      state: { enum: ["captured", "developing", "parked", "promoted", "archived"] },
+      tags: { type: "array", items: { type: "string" } }, source_references: { type: "array" },
+      intelligence_references: { type: "array" }, task_capsule_id: { type: "string" }
+    }
+  }),
   tool("task_checkpoint", "Checkpoint material progress for an active Sovereign Traffic Session.", {
     type: "object", required: ["traffic_session_id","summary"], properties: {
       traffic_session_id: { type: "string" }, summary: { type: "string" }, kind: { type: "string" }, next_action: { type: "string" },
@@ -77,7 +93,7 @@ const TOOL_DEFINITIONS = Object.freeze([
   })
 ]);
 
-export function createMcpServer({ persistence, retrieval, authenticateService, allowedOrigins = [] }) {
+export function createMcpServer({ persistence, retrieval, authenticateService, ideaStore, allowedOrigins = [] }) {
   return {
     async fetch(request) {
       let requestId = null;
@@ -92,7 +108,7 @@ export function createMcpServer({ persistence, retrieval, authenticateService, a
         if (body.method === "tools/list") return mcpResult(body.id, { tools: visibleTools(auth.permissions) });
         if (body.method === "resources/list") return mcpResult(body.id, { resources: resourceDefinitions(auth.permissions) });
         if (body.method === "resources/read") return await readResource({ id: body.id, params: body.params ?? {}, auth, persistence, retrieval });
-        if (body.method === "tools/call") return await callTool({ id: body.id, params: body.params ?? {}, auth, persistence, retrieval });
+        if (body.method === "tools/call") return await callTool({ id: body.id, params: body.params ?? {}, auth, persistence, retrieval, ideaStore });
         return mcpError(body.id, -32601, "Method not found.");
       } catch (error) {
         if (error instanceof SovereignError) return mcpError(requestId, sovereignRpcCode(error.status), error.message, { code: error.code, details: error.details });
@@ -102,11 +118,11 @@ export function createMcpServer({ persistence, retrieval, authenticateService, a
   };
 }
 
-async function callTool({ id, params, auth, persistence, retrieval }) {
+async function callTool({ id, params, auth, persistence, retrieval, ideaStore }) {
   const name = params.name;
   const definition = TOOL_DEFINITIONS.find((candidate) => candidate.name === name);
   if (!definition) return mcpError(id, -32602, `Unknown Sovereign tool: ${name}.`);
-  const result = await executeAgentOperation({ name, args: params.arguments ?? {}, auth, persistence, retrieval });
+  const result = await executeAgentOperation({ name, args: params.arguments ?? {}, auth, persistence, retrieval, ideaStore });
   return mcpResult(id, toolResult(result.data, result.persistence));
 }
 

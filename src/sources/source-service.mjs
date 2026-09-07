@@ -1,3 +1,4 @@
+import {activePolicy,CLASSIFICATIONS} from '../command/governance-admin.mjs';
 import { newId } from "../platform/ids.mjs";
 import { SovereignError, requireCondition } from "../platform/errors.mjs";
 import {
@@ -25,7 +26,8 @@ export class SourceService {
     return this.store.list("connectorDefinitions").sort((left, right) => left.display_name.localeCompare(right.display_name));
   }
 
-  createSource({ tenantId, principalId, connectorKey, category, displayName, locator, authorityState = "supporting", freshnessClass = "unknown", dataClassification = "internal", connectionState, processingState = "connected", currentness = "unknown", metadata = {} }) {
+  createSource({ tenantId, principalId, connectorKey, category, displayName, locator, authorityState = "supporting", freshnessClass = "unknown", dataClassification, connectionState, processingState = "connected", currentness = "unknown", metadata = {} }) {
+    dataClassification=this.classification(tenantId,dataClassification);
     const connector = connectorKey ? this.requireConnector(connectorKey) : null;
     const effectiveCategory = category ?? connector?.category;
     requireCondition(SOURCE_CATEGORIES.includes(effectiveCategory), "invalid_source_category", "Source category is invalid.");
@@ -49,7 +51,7 @@ export class SourceService {
     });
   }
 
-  createManagedUpload({ tenantId, principalId, fileName, mimeType = "application/octet-stream", sizeBytes, contentHash, classification = "internal", locator }) {
+  createManagedUpload({ tenantId, principalId, fileName, mimeType = "application/octet-stream", sizeBytes, contentHash, classification, locator }) {
     requireCondition(fileName?.trim(), "file_name_required", "File name is required.");
     requireCondition(Number.isInteger(sizeBytes) && sizeBytes >= 0, "file_size_invalid", "File size must be a non-negative integer.");
     const source = this.createSource({
@@ -135,6 +137,7 @@ export class SourceService {
   updateSource({ tenantId, principalId, sourceId, displayName, dataClassification, archived, removed }) {
     const source = this.store.requireTenant("sources", sourceId, tenantId);
     if (displayName !== undefined) requireCondition(typeof displayName === "string" && displayName.trim(), "source_name_required", "Source name is required.");
+    if(dataClassification!==undefined)dataClassification=this.classification(tenantId,dataClassification);
     if (dataClassification !== undefined) requireCondition(["public", "internal", "confidential", "restricted"].includes(dataClassification), "source_classification_invalid", "Invalid classification.");
     if (archived !== undefined) requireCondition(typeof archived === "boolean", "source_archive_invalid", "Archive must be a boolean.");
     requireCondition(removed === undefined || removed === true, "source_removal_invalid", "Removal must be explicitly confirmed.");
@@ -147,6 +150,12 @@ export class SourceService {
     if (removed) for (const item of this.store.list("sourceItems", item => item.tenant_id === tenantId && item.source_id === sourceId)) this.store.update("sourceItems", item.source_item_id, { privacy_state: "excluded", updated_at: timestamp });
     this.store.put("auditEvents", { audit_event_id: newId("aud"), tenant_id: tenantId, principal_id: principalId, event_type: removed ? "source.removed" : "source.updated", subject_type: "source", subject_id: sourceId, outcome: "success", metadata: { archived: updated.metadata.archived ?? false, previous_classification: source.data_classification, classification: updated.data_classification }, occurred_at: timestamp });
     return updated;
+  }
+
+  classification(tenantId,value){
+    const policy=activePolicy(this.store,tenantId,'privacy');const result=value??policy.default_classification??'internal';
+    requireCondition(CLASSIFICATIONS.includes(result),'source_classification_invalid','Invalid classification.');
+    requireCondition(CLASSIFICATIONS.indexOf(result)>=CLASSIFICATIONS.indexOf(policy.minimum_classification??'public'),'source_classification_policy','Classification is below this tenant’s minimum.',{status:403});return result;
   }
 
   listSources(tenantId) {

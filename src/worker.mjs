@@ -1,3 +1,4 @@
+import {activePolicy} from './command/governance-admin.mjs';
 import { authorizeGovernance } from "./auth/governance.mjs";
 import { createHttpGateway } from "./gateway/http-gateway.mjs";
 import { createSovereignPlatform } from "./platform/sovereign-platform.mjs";
@@ -34,9 +35,10 @@ export default {
       }
 
       if (request.method === "GET" && url.pathname === "/console/sources/upload") {
-        await requireBoundUser({ request, authenticate, persistence });
+        const {binding}=await requireBoundUser({ request, authenticate, persistence });
         files.assertConfigured();
-        return html(sourceUploadPageHtml());
+        const loaded=await persistence.loadTenant(binding.tenant_id);
+        return html(sourceUploadPageHtml({privacyPolicy:activePolicy(loaded.store,binding.tenant_id,"privacy")}));
       }
 
       if (request.method === "POST" && url.pathname === "/v1/sources/upload-file") {
@@ -118,7 +120,7 @@ async function handleBrowserUpload({ request, authenticate, persistence, files }
   if (file.size > MAX_BROWSER_UPLOAD_BYTES) {
     throw new SovereignError("file_too_large", "Browser uploads are currently limited to 25 MB per file.", { status: 413 });
   }
-  const classification = String(form.get("data_classification") || "internal");
+  const classification = form.get("data_classification") ? String(form.get("data_classification")) : undefined;
   const source = platform.sources.createManagedUpload({
     tenantId: binding.tenant_id,
     principalId: binding.principal_id,

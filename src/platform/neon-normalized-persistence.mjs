@@ -1,9 +1,11 @@
+import {manageGovernance} from '../command/governance-admin.mjs';
 import { Client, neon } from "@neondatabase/serverless";
 import { InMemorySovereignStore } from "./store.mjs";
 import { SovereignError } from "./errors.mjs";
 
 const LOAD_STATE_SQL = `
 SELECT
+  (SELECT COALESCE(jsonb_agg(to_jsonb(p)), '[]'::jsonb) FROM command.policies p WHERE p.tenant_id=$1) AS "policies",
   (SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY t.created_at), '[]'::jsonb) FROM command.tenants t WHERE t.tenant_id=$1) AS "tenants",
   (SELECT COALESCE(jsonb_agg(to_jsonb(w) ORDER BY w.created_at), '[]'::jsonb) FROM command.workspaces w WHERE w.tenant_id=$1) AS "workspaces",
   (SELECT COALESCE(jsonb_agg(to_jsonb(p) || jsonb_build_object('role_ids', COALESCE((SELECT jsonb_agg(b.role_id ORDER BY b.role_id) FROM command.principal_role_bindings b WHERE b.tenant_id=p.tenant_id AND b.principal_id=p.principal_id), '[]'::jsonb)) ORDER BY p.created_at), '[]'::jsonb) FROM command.principals p WHERE p.tenant_id=$1) AS "principals",
@@ -43,6 +45,7 @@ SELECT
 `;
 
 const TABLES = {
+  policies: map("command.policies", ["policy_id"], ["policy_id","tenant_id","policy_type","state","rules","effective_at","supersedes_policy_id","revision","created_at","updated_at"], ["rules"]),
   tenants: map("command.tenants", ["tenant_id"], ["tenant_id","slug","display_name","command_display_name","state","branding","revision","created_at","updated_at"], ["branding"]),
   principals: map("command.principals", ["principal_id"], ["principal_id","tenant_id","kind","display_name","state","auth_subject_reference","metadata","revision","created_at","updated_at"], ["metadata"]),
   workspaces: map("command.workspaces", ["workspace_id"], ["workspace_id","tenant_id","parent_workspace_id","slug","display_name","state","settings","created_by_principal_id","revision","created_at","updated_at"], ["settings"]),
@@ -122,6 +125,8 @@ export function createNormalizedNeonPersistence(databaseUrl, { httpSql, clientFa
       );
       return rows[0] ?? null;
     },
+
+    async manageGovernance(args) {return manageGovernance({...args,makeClient});},
 
     async exportCommandConfig(tenantId) {
       const rows = await sql.query(`SELECT
@@ -412,6 +417,7 @@ function validateReferences(row, config, tenantId, store) {
 
 function hydrateState(row) {
   const state = {
+    policies: array(row.policies),
     tenants: array(row.tenants), workspaces: array(row.workspaces), principals: array(row.principals),
     providers: array(row.providers), surfaces: array(row.surfaces), actorInstances: array(row.actorInstances),
     trafficSessions: array(row.trafficSessions), resources: array(row.resources), resourceClaims: array(row.resourceClaims),

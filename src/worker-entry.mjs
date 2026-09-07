@@ -1,3 +1,4 @@
+import {GOVERNANCE_PERMISSIONS} from './command/governance-admin.mjs';
 import { previewLegacy, applyLegacy, rollbackLegacy } from "./portability/legacy-import.mjs";
 import { exportTenant } from "./portability/export.mjs";
 import { authorizeGovernance } from "./auth/governance.mjs";
@@ -35,10 +36,15 @@ export default {
         return Response.json(exportTenant({ platform, tenantId: binding.tenant_id, ideas, commandConfig }), { headers: { "cache-control": "private, no-store", "content-disposition": "attachment; filename=sovereign-export.json", "x-content-type-options": "nosniff" } });
       }
 
+      if(request.method==='POST'&&url.pathname==='/v1/command/governance'){
+        const {binding}=await loadBoundPlatform({request,authenticate,persistence});const body=await jsonBody(request);
+        return Response.json(await persistence.manageGovernance({tenantId:binding.tenant_id,principalId:binding.principal_id,action:body.action,input:body.input}),{headers:{'cache-control':'private, no-store'}});
+      }
+
       if (request.method === 'GET' && url.pathname === '/v1/command/configuration') {
         const {binding,platform}=await loadBoundPlatform({request,authenticate,persistence});
         const configuration=await persistence.exportCommandConfig(binding.tenant_id);
-        return Response.json({...configuration,principals:platform.store.list('principals',item=>item.tenant_id===binding.tenant_id).map(({principal_id,display_name,kind,state})=>({principal_id,display_name,kind,state})),providers:platform.store.list('providers',item=>item.tenant_id===binding.tenant_id).map(({provider_id,provider_key,display_name})=>({provider_id,provider_key,display_name}))},{headers:{'cache-control':'private, no-store'}});
+        return Response.json({...configuration,permission_catalog:GOVERNANCE_PERMISSIONS,principals:platform.store.list('principals',item=>item.tenant_id===binding.tenant_id).map(({principal_id,display_name,kind,state})=>({principal_id,display_name,kind,state})),providers:platform.store.list('providers',item=>item.tenant_id===binding.tenant_id).map(({provider_id,provider_key,display_name})=>({provider_id,provider_key,display_name}))},{headers:{'cache-control':'private, no-store'}});
       }
 
       if (request.method === "POST" && ["/v1/import/preview", "/v1/import/apply", "/v1/import/rollback"].includes(url.pathname)) {

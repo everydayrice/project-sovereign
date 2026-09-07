@@ -28,10 +28,12 @@ The browser connection stalled at the native synthetic-import confirmation. Insp
 
 ## Unfinished implementation scope
 
-- Role/grant/policy administration beyond existing Owner enforcement and configuration inspection.
+- Production acceptance of role/grant administration and supported versioned policies; broader arbitrary policy types remain unsupported.
 - Broader real connector and practical document/spreadsheet parser coverage; unsupported formats currently remain explicitly stored/unparsed.
 - Full structured retrieval filters and expanded intelligence workflows.
 - Queue production configuration, full machine-client acceptance, live recovery/canonical/traffic acceptance, and mobile verification.
 - Release/version promotion and final adversarial review after all acceptance gates pass.
 
 No V1 completion or release promotion is claimed.
+
+Governance follow-up: role/grant editing and supported policy activation are implemented, with 68 ordinary tests passing and one separate disposable-Neon governance transaction test passing. Live governance UI acceptance remains pending.

@@ -4,6 +4,8 @@ import { createSovereignPlatform } from "../src/platform/sovereign-platform.mjs"
 import { InMemorySovereignStore } from "../src/platform/store.mjs";
 import { createMcpServer, MCP_PROTOCOL_VERSION } from "../src/gateway/mcp-server.mjs";
 import { createServiceAuthenticator } from "../src/auth/service-credentials.mjs";
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
 function fixture() {
   const platform = createSovereignPlatform({ clock: () => new Date("2026-09-05T12:00:00.000Z") });
@@ -120,6 +122,55 @@ function fakePersistence(initialState) {
     }
   };
 }
+
+test('official MCP SDK initializes and resumes a checkpoint through a fresh client', async () => {
+  const ctx = fixture();
+  const persistence = fakePersistence(ctx.platform.store.exportState());
+  const server = createMcpServer({persistence, retrieval:{}, authenticateService:async()=>({
+    tenantId:ctx.tenant.tenant_id,principalId:ctx.principal.principal_id,service:true,
+    permissions:['orientation:read','traffic:read','traffic:write','continuity:read','continuity:write']
+  })});
+  const connect = async name => {
+    const client = new Client({name,version:'1.0.0'});
+    const transport = new StreamableHTTPClientTransport(new URL('https://sovereign.test/mcp'),{
+      fetch:async(url,init)=>server.fetch(new Request(url,init))
+    });
+    await client.connect(transport);
+    return client;
+  };
+  const first = await connect('independent-sdk-first');
+  try {
+    assert.ok((await first.listTools()).tools.some(t=>t.name==='task_checkpoint'));
+    await first.ping();
+    const task = (await first.callTool({name:'task_create',arguments:{title:'SDK handoff',objective:'Resume across clients'}})).structuredContent;
+    const checked = (await first.callTool({name:'check_in',arguments:{objective:'SDK work',task_capsule_id:task.task_capsule_id}})).structuredContent;
+    await first.callTool({name:'task_checkpoint',arguments:{traffic_session_id:checked.traffic_session.traffic_session_id,summary:'Saved by the first SDK client',next_action:'Continue from the second client'}});
+    await first.close();
+    const second = await connect('independent-sdk-second');
+    try {
+      const resumed = (await second.callTool({name:'resume',arguments:{task_capsule_id:task.task_capsule_id}})).structuredContent;
+      assert.equal(resumed.latest_checkpoint.summary,'Saved by the first SDK client');
+      assert.equal(resumed.next_action,'Continue from the second client');
+    } finally { await second.close(); }
+  } finally { await first.close(); }
+});
+
+test('MCP returns HTTP auth challenges, negotiated versions, and empty notification responses',async()=>{
+  const auth=createServiceAuthenticator({credentialStore:{resolveToken:async()=>null}});
+  const denied=createMcpServer({authenticateService:auth});
+  const init={jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2025-06-18',clientInfo:{name:'test',version:'1'},capabilities:{}}};
+  const request=()=>new Request('https://sovereign.test/mcp',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(init)});
+  const response=await denied.fetch(request());
+  assert.equal(response.status,401);
+  assert.match(response.headers.get('www-authenticate'),/oauth-protected-resource/);
+  const server=createMcpServer({authenticateService:async()=>({permissions:[]})});
+  assert.equal((await (await server.fetch(request())).json()).result.protocolVersion,'2025-06-18');
+  const notification=await server.fetch(mcpRequest('notifications/initialized',{},undefined));
+  assert.equal(notification.status,202);
+  assert.equal(await notification.text(),'');
+  assert.equal((await server.fetch(new Request('https://sovereign.test/mcp'))).status,405);
+  assert.equal((await server.fetch(mcpRequest('ping',{},1,{'MCP-Protocol-Version':'invalid'}))).status,400);
+});
 
 test('MCP reads durable Ideas through the same normalized store as HTTP', async () => {
   const ctx = fixture();

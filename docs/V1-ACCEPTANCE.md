@@ -2,6 +2,25 @@
 
 V1 is not complete. Merged implementation and unit tests are not substitutes for production acceptance. This record distinguishes completed evidence from remaining work.
 
+## September 9 standalone ChatGPT follow-up
+
+RICE Lightning/Queue is an optional external integration, not a Sovereign launch
+dependency. Historical Queue references below do not define the standalone release gate.
+
+The old MCP handler omitted standard initialization. This change adds initialization,
+version negotiation, notifications, ping, HTTP authentication challenges, and OAuth
+account linking using the existing Sovereign login. The official MCP SDK now connects
+and resumes a checkpoint through a fresh client using local test persistence.
+73 ordinary tests pass (8 opt-in tests skipped). Separate rollback-only tests against
+the isolated Neon migration branch validate the real OAuth SQL, including PKCE binding,
+expiry, one-time redemption, client/resource/callback binding, owner permissions,
+refresh rotation and revocation on refresh-token replay.
+
+Migration 0006 is prepared and tested, pending explicit production migration approval.
+Worker bundling passes a Wrangler deployment dry run. Production deployment and
+ChatGPT account linking/read-write-resume remain unverified. No release promotion is claimed.
+See [ChatGPT connection](CHATGPT-CONNECTION.md) for the exact setup and acceptance prompts.
+
 | # | Scenario | Status | Evidence / remaining verification |
 |---|---|---|---|
 | 1 | Auth / tenant | PASS | Owner authenticated and operated the real tenant; governed Console task writes persisted. |

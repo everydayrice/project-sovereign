@@ -2,7 +2,8 @@ import { createSovereignPlatform } from "../platform/sovereign-platform.mjs";
 import { SovereignError } from "../platform/errors.mjs";
 import { AGENT_OPERATIONS, executeAgentOperation, requireAgentScopes } from "./agent-operations.mjs";
 
-export const MCP_PROTOCOL_VERSION = "2026-07-28";
+export const MCP_PROTOCOL_VERSION = "2025-11-25";
+const SUPPORTED_VERSIONS = [MCP_PROTOCOL_VERSION, "2025-06-18", "2025-03-26"];
 
 const TOOL_DEFINITIONS = Object.freeze([
   tool("check_in", "Check an actor into Sovereign Control Plane and receive orientation.", {
@@ -101,11 +102,19 @@ export function createMcpServer({ persistence, retrieval, authenticateService, i
       let requestId = null;
       try {
         assertTransport(request, allowedOrigins);
+        if (request.method !== "POST") return new Response(null, { status: 405, headers: { Allow: "POST" } });
         const body = await request.json().catch(() => null);
         requestId = body?.id ?? null;
         if (!body || body.jsonrpc !== "2.0" || typeof body.method !== "string") return mcpError(requestId, -32600, "Invalid JSON-RPC request.");
 
         const auth = await authenticateService(request);
+        if (body.id === undefined) return new Response(null, { status: 202 });
+        if (body.method === "initialize") {
+          if (!body.params?.protocolVersion || !body.params?.clientInfo || !body.params?.capabilities) return mcpError(body.id, -32602, "Initialization requires protocolVersion, clientInfo and capabilities.");
+          const version = SUPPORTED_VERSIONS.includes(body.params.protocolVersion) ? body.params.protocolVersion : MCP_PROTOCOL_VERSION;
+          return mcpResult(body.id, { ...discovery(auth), protocolVersion: version }, version);
+        }
+        if (body.method === "ping") return mcpResult(body.id, {});
         if (body.method === "server/discover") return mcpResult(body.id, discovery(auth));
         if (body.method === "tools/list") return mcpResult(body.id, { tools: visibleTools(auth.permissions) });
         if (body.method === "resources/list") return mcpResult(body.id, { resources: resourceDefinitions(auth.permissions) });
@@ -113,7 +122,12 @@ export function createMcpServer({ persistence, retrieval, authenticateService, i
         if (body.method === "tools/call") return await callTool({ id: body.id, params: body.params ?? {}, auth, persistence, retrieval, ideaStore });
         return mcpError(body.id, -32601, "Method not found.");
       } catch (error) {
-        if (error instanceof SovereignError) return mcpError(requestId, sovereignRpcCode(error.status), error.message, { code: error.code, details: error.details });
+        if (error instanceof SovereignError) {
+          const response = mcpError(requestId, sovereignRpcCode(error.status), error.message, { code: error.code, details: error.details });
+          const headers = new Headers(response.headers);
+          if (error.status === 401) headers.set("WWW-Authenticate", `Bearer resource_metadata="${new URL('/.well-known/oauth-protected-resource', request.url)}"`);
+          return new Response(response.body, { status: error.status, headers });
+        }
         return mcpError(requestId, -32603, "Unexpected Sovereign MCP error.");
       }
     }
@@ -158,6 +172,7 @@ function discovery(auth) {
     protocolVersion: MCP_PROTOCOL_VERSION,
     serverInfo: { name: "project-sovereign", version: "1.0.0-alpha" },
     capabilities: { tools: { listChanged: false }, resources: { listChanged: false } },
+    instructions: "Use Sovereign to retrieve durable context and preserve work across sessions. Start with continuity_get or search; resume an existing task before creating another. Check in before checkpointing, save material progress, and check out when finished. Canonical changes are proposals requiring human review. Never claim a write succeeded without a returned persistence receipt.",
     sovereign: { statelessTransport: true, tenantScoped: true, serviceCredentialId: auth.serviceCredentialId }
   };
 }
@@ -176,11 +191,10 @@ function resourceDefinitions(scopes) {
 }
 
 function assertTransport(request, allowedOrigins) {
-  if (request.method !== "POST") throw new SovereignError("mcp_method_not_allowed", "Sovereign MCP accepts POST requests.", { status: 405 });
   const version = request.headers.get("MCP-Protocol-Version");
-  if (version !== MCP_PROTOCOL_VERSION) throw new SovereignError("mcp_protocol_version_unsupported", `MCP-Protocol-Version ${MCP_PROTOCOL_VERSION} is required.`, { status: 400 });
+  if (version && !SUPPORTED_VERSIONS.includes(version)) throw new SovereignError("mcp_protocol_version_unsupported", "Unsupported MCP protocol version.", { status: 400 });
   const contentType = request.headers.get("content-type") ?? "";
-  if (!contentType.toLowerCase().includes("application/json")) throw new SovereignError("mcp_content_type_invalid", "MCP requests must use application/json.", { status: 415 });
+  if (request.method === "POST" && !contentType.toLowerCase().includes("application/json")) throw new SovereignError("mcp_content_type_invalid", "MCP requests must use application/json.", { status: 415 });
   const origin = request.headers.get("origin");
   if (origin) {
     const requestOrigin = new URL(request.url).origin;
@@ -205,13 +219,13 @@ function resourceResult(uri, payload) {
   return { contents: [{ uri, mimeType: "application/json", text: JSON.stringify(payload, null, 2) }] };
 }
 
-function mcpResult(id, result) { return jsonRpc({ jsonrpc: "2.0", id, result }); }
+function mcpResult(id, result, version = MCP_PROTOCOL_VERSION) { return jsonRpc({ jsonrpc: "2.0", id, result }, version); }
 function mcpError(id, code, message, data) { return jsonRpc({ jsonrpc: "2.0", id, error: { code, message, ...(data ? { data } : {}) } }); }
 
-function jsonRpc(payload) {
+function jsonRpc(payload, version = MCP_PROTOCOL_VERSION) {
   return new Response(JSON.stringify(payload), {
     status: 200,
-    headers: { "content-type": "application/json; charset=utf-8", "MCP-Protocol-Version": MCP_PROTOCOL_VERSION, "cache-control": "no-store" }
+    headers: { "content-type": "application/json; charset=utf-8", "MCP-Protocol-Version": version, "cache-control": "no-store" }
   });
 }
 

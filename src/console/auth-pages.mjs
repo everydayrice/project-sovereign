@@ -38,7 +38,9 @@ export function authPageHtml({ mode = "login" } = {}) {
           });
           const payload = await response.json().catch(() => ({}));
           if (!response.ok) throw new Error(payload.message || payload.error?.message || 'Authentication failed.');
-          window.location.assign('/onboarding');
+          const requestedReturn = new URLSearchParams(window.location.search).get('return_to');
+          const returnUrl = new URL(requestedReturn || '/onboarding', window.location.origin);
+          window.location.assign(returnUrl.origin === window.location.origin && returnUrl.pathname === '/oauth/authorize' ? returnUrl.href : '/onboarding');
         } catch (error) {
           message.textContent = error.message || 'Authentication failed.';
         }

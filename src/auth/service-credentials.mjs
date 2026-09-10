@@ -125,6 +125,7 @@ export function createServiceCredentialStore(databaseUrl, { httpSql, clientFacto
       if (credential.expires_at && new Date(credential.expires_at).getTime() <= Date.now()) return null;
       void sql.query("UPDATE command.service_credentials SET last_used_at=now(),updated_at=now() WHERE service_credential_id=$1", [credential.service_credential_id]).catch(() => {});
       return {
+        oauthResource: credential.principal_metadata?.oauth_resource ?? null,
         extensionId: credential.principal_metadata?.extension_id ?? null,
         serviceCredentialId: credential.service_credential_id,
         tenantId: credential.tenant_id,
@@ -180,6 +181,7 @@ export function createServiceAuthenticator({ credentialStore }) {
     if (!match) throw new SovereignError("service_auth_required", "Bearer service credential is required.", { status: 401 });
     const resolved = await credentialStore.resolveToken(match[1].trim());
     if (!resolved) throw new SovereignError("service_credential_invalid", "Service credential is invalid, expired, or revoked.", { status: 401 });
+    if (resolved.oauthResource && new URL(request.url).origin + new URL(request.url).pathname !== resolved.oauthResource) throw new SovereignError("service_credential_audience_invalid", "OAuth token is not valid for this resource.", { status: 401 });
     const missing = requiredScopes.filter((scope) => !resolved.scopes.includes(scope));
     if (missing.length) throw new SovereignError("service_scope_denied", "Service identity does not have the required Sovereign scope.", { status: 403, details: { missing_scopes: missing } });
     return {

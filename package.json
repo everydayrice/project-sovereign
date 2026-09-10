@@ -14,5 +14,8 @@
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.26.0"
   }
 }

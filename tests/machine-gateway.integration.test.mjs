@@ -49,7 +49,7 @@ test('real Neon machine credential, HTTP/MCP and durable handoff acceptance', { 
     const answer = await request(reader, 'POST', '/ask', { query: "What is ORBIT TEST's status?" });
     assert.match(answer.answer, /ACTIVE/);
     const rpc = await mcp.fetch(new Request('https://acceptance.invalid/mcp', { method:'POST', headers:{
-      authorization:'Bearer '+reader.token,'content-type':'application/json','MCP-Protocol-Version':'2026-07-28'
+      authorization:'Bearer '+reader.token,'content-type':'application/json','MCP-Protocol-Version':'2025-11-25'
     }, body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/list'}) }));
     const names = (await rpc.json()).result.tools.map(t => t.name);
     assert.ok(names.includes('ask')); assert.ok(!names.includes('task_create'));

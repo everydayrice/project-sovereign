@@ -43,6 +43,7 @@ test('OAuth discovery, explicit consent, PKCE, code replay and refresh rotation'
   assert.match((await ctx.server.fetch(new Request(authorization))).headers.get('location'),/\/login\?return_to=/);
   const consent=await ctx.server.fetch(new Request(authorization,{headers:{cookie:'session=valid'}}));
   assert.equal(consent.status,200);
+  assert.equal(consent.headers.get('referrer-policy'),'same-origin');
   assert.match(await consent.text(),/Allow connection/);
   const csrfCookie=consent.headers.get('set-cookie').split(';')[0];
   const csrf=csrfCookie.split('=')[1];
@@ -81,6 +82,18 @@ test('OAuth access credentials cannot be used at another resource',async()=>{
   const authenticate=createServiceAuthenticator({credentialStore:{resolveToken:async()=>({oauthResource:origin+'/mcp',scopes:['continuity:read']})}});
   assert.ok(await authenticate(new Request(origin+'/mcp',{headers:{authorization:'Bearer svk_oauth_test'}})));
   await assert.rejects(()=>authenticate(new Request(origin+'/api/v1/continuity',{headers:{authorization:'Bearer svk_oauth_test'}})),e=>e.status===401);
+});
+
+test('Consent keeps rejecting missing, opaque and foreign origins even with a valid CSRF pair',async()=>{
+  const ctx=fixture();const {params}=await setup(ctx);
+  for (const requestOrigin of [undefined,'null','https://evil.test']) {
+    const response=await ctx.post('/oauth/authorize',{...params,csrf:'valid-pair',decision:'allow'},
+      {cookie:'session=valid; __Host-sovereign-oauth-csrf=valid-pair',...(requestOrigin?{origin:requestOrigin}:{})});
+    assert.equal(response.status,403);
+    assert.equal(response.headers.has('location'),false);
+    assert.match(await response.text(),/connection page could not be verified/);
+  }
+  assert.equal(ctx.grants.length,0);
 });
 
 test('Expired consent offers a fresh review without granting access or replaying the decision',async()=>{

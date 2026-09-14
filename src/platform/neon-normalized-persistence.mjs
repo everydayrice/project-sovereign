@@ -73,7 +73,8 @@ const TABLES = {
     extension_grant_id: item.extension_grant_id, tenant_id: item.tenant_id,
     extension_installation_id: item.extension_installation_id, state: item.state,
     granted_scopes: item.granted_scopes ?? [], granted_by_principal_id: item.granted_by?.principal_id ?? item.granted_by_principal_id,
-    granted_at: item.granted_at, revoked_at: item.revoked_at ?? null
+    granted_at: item.granted_at, revoked_at: item.revoked_at ?? null,
+    updated_at: item.updated_at ?? item.revoked_at ?? item.granted_at, revision: item.revision ?? 1
   }), ["granted_scopes"]),
   auditEvents: map("audit.events", ["audit_event_id"], ["audit_event_id","tenant_id","occurred_at","event_type","subject_type","subject_id","principal_id","actor_instance_id","traffic_session_id","outcome","metadata"], ["metadata"]),
   sources: map("intelligence.sources", ["source_id"], ["source_id","tenant_id","source_type","canonical_locator","authority_state","freshness_class","data_classification","retention_policy_id","last_verified_at","metadata","revision","created_at","updated_at","connector_key","source_category","display_name","connection_state","processing_state","currentness","health_state","item_count","inventoried_item_count","indexed_item_count","analyzed_item_count","studied_item_count","canonicalized_item_count","failed_item_count","excluded_item_count","last_sweep_at","failure_reason","created_by_principal_id"], ["metadata"]),

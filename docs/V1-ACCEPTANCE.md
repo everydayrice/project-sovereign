@@ -26,6 +26,22 @@ prioritized backlog tasks, with persistence version 25 after checkout. Canonical
 status remained revision 0 with no approved records. Existing conversation history
 has not been automatically imported or promoted.
 
+## September 14 reversal acceptance
+
+`scripts/canonical-reversal-acceptance.mjs` passed against the existing isolated Neon
+regression branch in one rollback-only transaction. It uses the normalized persistence
+adapter, creates a fresh fixture tenant and rehydrates state between lifecycle steps.
+An initial approved decision was updated and its update reversed through a separately
+approved change set. The restored value, three preserved record revisions, original
+applied change and reversal reference were verified after fresh hydration. Approval
+by a service principal was rejected. Final rollback was verified by querying that the
+fixture tenant was absent. Production knowledge was untouched.
+
+This is real SQL lifecycle evidence, not cross-transaction durability or production
+browser reversal acceptance. Those distinctions remain part of gate 4. The prepared
+[three-document import batch](../imports/README.md) passed local preview/stage/rollback
+checks; no production source import is claimed.
+
 ## Historical September 9 follow-up (superseded by current evidence)
 
 RICE Lightning/Queue is an optional external integration, not a Sovereign launch
@@ -50,7 +66,7 @@ See [ChatGPT connection](CHATGPT-CONNECTION.md) for the exact setup and acceptan
 | 1 | Auth / tenant | PASS | Owner authenticated and operated the real tenant; governed Console task writes persisted. |
 | 2 | File ingestion | PASS | Synthetic Markdown uploaded, stored in R2, normalized, automatically analyzed and queried; source archive/restore returned it to current/analyzed. Broader format coverage remains separate unfinished scope. |
 | 3 | Ask Sovereign | PASS | ORBIT TEST source-backed answer worked without canonical promotion; production has zero canonical records. |
-| 4 | Canonical lifecycle | BLOCKED | Candidate review, approval, history and reversing proposals implemented and tested locally; production browser lifecycle not completed. |
+| 4 | Canonical lifecycle | PARTIAL | Production owner approved four baseline records at revision 1. Isolated real SQL update/reversal preserved three revisions with fresh hydration and verified final rollback. Production browser reversal remains unverified. |
 | 5 | Conflict | BLOCKED | Explicit subject/type/scope contradictions surfaced without writes in tests; live conflicting-evidence review pending. No claim of semantic contradiction detection. |
 | 6 | Continuity | BLOCKED | Production Console task create, work, checkpoint, checkout, reload/resume and completion passed. Production ChatGPT cross-conversation resume also passed September 14. Full two-actor handoff acceptance remains pending. |
 | 7 | Traffic | BLOCKED | Domain overlap/lease tests pass; complete live two-actor overlap matrix remains unverified. |

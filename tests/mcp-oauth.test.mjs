@@ -82,3 +82,40 @@ test('OAuth access credentials cannot be used at another resource',async()=>{
   assert.ok(await authenticate(new Request(origin+'/mcp',{headers:{authorization:'Bearer svk_oauth_test'}})));
   await assert.rejects(()=>authenticate(new Request(origin+'/api/v1/continuity',{headers:{authorization:'Bearer svk_oauth_test'}})),e=>e.status===401);
 });
+
+test('Expired consent offers a fresh review without granting access or replaying the decision',async()=>{
+  const ctx=fixture();const {params}=await setup(ctx);
+  const expired=await ctx.post('/oauth/authorize',{...params,decision:'allow',csrf:'expired'},{origin,cookie:'session=valid'});
+  assert.equal(expired.status,403);
+  assert.match(expired.headers.get('content-type'),/text\/html/);
+  assert.equal(expired.headers.get('cache-control'),'no-store');
+  const html=await expired.text();
+  assert.match(html,/Consent expired/);
+  const retry=html.match(/class="action" href="([^"]+)"/)[1].replaceAll('&amp;','&');
+  const retryUrl=new URL(retry,origin);
+  assert.equal(retryUrl.origin,origin);
+  assert.equal(retryUrl.searchParams.has('decision'),false);
+  assert.equal(retryUrl.searchParams.has('csrf'),false);
+  assert.equal(retryUrl.searchParams.get('state'),params.state);
+  const review=await ctx.server.fetch(new Request(retryUrl,{headers:{cookie:'session=valid'}}));
+  assert.equal(review.status,200);
+  assert.match(await review.text(),/Allow connection/);
+  assert.match(review.headers.get('set-cookie'),/__Host-sovereign-oauth-csrf=/);
+  assert.equal(ctx.grants.length,0);
+});
+
+test('Login cancellation, expired sessions and invalid callbacks have safe recovery pages',async()=>{
+  const ctx=fixture();const {params}=await setup(ctx);
+  const cancel=await ctx.server.fetch(new Request(origin+'/oauth/cancel'));
+  assert.equal(cancel.status,200);
+  assert.match(await cancel.text(),/Connection cancelled/);
+  const expired=await ctx.post('/oauth/authorize',{...params,decision:'allow',csrf:'old'},{origin});
+  assert.equal(expired.status,401);
+  assert.match(await expired.text(),/Sign-in expired/);
+  const invalid=await ctx.server.fetch(new Request(origin+'/oauth/authorize?'+new URLSearchParams({...params,redirect_uri:'https://evil.test/'})));
+  const html=await invalid.text();
+  assert.equal(invalid.status,400);
+  assert.equal(invalid.headers.has('location'),false);
+  assert.doesNotMatch(html,/class="action"|evil\.test/);
+  assert.equal(ctx.grants.length,0);
+});

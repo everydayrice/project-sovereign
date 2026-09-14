@@ -10,7 +10,11 @@ export function createMcpOAuth({ store, authenticate, resolveBinding }) {
       const url = new URL(request.url);
       const issuer = url.origin;
       const resource = `${issuer}/mcp`;
+      let restartPath;
       try {
+        if (request.method === 'GET' && url.pathname === '/oauth/cancel') {
+          return recoveryPage({title:'Connection cancelled',message:'You stopped signing in. No new connection was approved.'});
+        }
         if (request.method === 'GET' && ['/.well-known/oauth-protected-resource','/.well-known/oauth-protected-resource/mcp'].includes(url.pathname)) {
           return json({ resource, authorization_servers: [issuer], scopes_supported: MCP_OAUTH_SCOPES, bearer_methods_supported: ['header'] });
         }
@@ -42,6 +46,12 @@ export function createMcpOAuth({ store, authenticate, resolveBinding }) {
           if (params.get('code_challenge_method') !== 'S256' || !/^[A-Za-z0-9_-]{43}$/.test(challenge || '')) fail('invalid_request','S256 PKCE is required.');
           const scopes = [...new Set((params.get('scope') || MCP_OAUTH_SCOPES.join(' ')).split(' ').filter(Boolean))];
           if (!scopes.length || scopes.some(s => !MCP_OAUTH_SCOPES.includes(s))) fail('invalid_scope','One or more requested scopes are unsupported.');
+          // Only validated authorization parameters may be carried into a fresh consent screen.
+          const restart = new URLSearchParams();
+          for (const key of ['client_id','redirect_uri','response_type','resource','code_challenge','code_challenge_method','state','scope']) {
+            if (params.has(key)) restart.set(key,params.get(key));
+          }
+          restartPath = `/oauth/authorize?${restart}`;
           let identity;
           try { identity = await authenticate(request); }
           catch (error) {
@@ -100,6 +110,13 @@ export function createMcpOAuth({ store, authenticate, resolveBinding }) {
         }
         return json({error:'invalid_request',error_description:'Method not allowed.'},405);
       } catch (error) {
+        if (url.pathname === '/oauth/authorize') {
+          return recoveryPage({
+            title:error.status===401?'Sign-in expired':'Connection not completed',
+            message:error.oauthCode?error.message:error.status===401?'Your sign-in session expired. Sign in again to continue.':'We could not finish this connection. Please try again.',
+            restartPath,status:error.status || 500
+          });
+        }
         return json({error:error.oauthCode || (error.status===401?'access_denied':'server_error'),error_description:error.oauthCode?error.message:'Unable to complete Sovereign authorization.'},error.status || 500);
       }
     }
@@ -114,6 +131,17 @@ function random() { return base64(crypto.getRandomValues(new Uint8Array(32))); }
 async function sha256Base64(value) { return base64(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value)))); }
 async function hash(value) { return [...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value)))].map(b=>b.toString(16).padStart(2,'0')).join(''); }
 function escape(value) { return String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function recoveryPage({title,message,restartPath,status=200}) {
+  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escape(title)} · Sovereign</title>
+  <style>body{font:16px/1.5 system-ui;margin:0;background:#f7f7f5;color:#111}main{max-width:520px;margin:8vh auto;padding:28px;background:white;border:1px solid #ddd;border-radius:16px}a{color:inherit}.action{display:inline-block;padding:12px 20px;background:#111;color:white;border-radius:8px;text-decoration:none}h1{line-height:1.2}@media(max-width:600px){main{margin:24px 16px}}</style></head><body>
+  <main><p>SOVEREIGN</p><h1>${escape(title)}</h1><p>${escape(message)}</p>
+  <p>To start a new connection, return to the app you were connecting from and choose Connect again. You can close this tab.</p>
+  ${restartPath?`<p><a class="action" href="${escape(restartPath)}">Try connection again</a></p>`:''}
+  <p><a href="/">Go to Sovereign</a></p></main></body></html>`,{status,headers:{
+    'content-type':'text/html; charset=utf-8','cache-control':'no-store','referrer-policy':'no-referrer',
+    'content-security-policy':"default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'"
+  }});
+}
 function consentPage({client,params,csrf,scopes,email}) {
   const fields = ['client_id','redirect_uri','response_type','resource','code_challenge','code_challenge_method','state'];
   const hidden = fields.filter(k=>params.has(k)).map(k=>`<input type="hidden" name="${k}" value="${escape(params.get(k))}">`).join('');

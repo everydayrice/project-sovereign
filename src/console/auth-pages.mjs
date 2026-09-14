@@ -1,10 +1,13 @@
-export function authPageHtml({ mode = "login" } = {}) {
+export function authPageHtml({ mode = "login", returnTo = "" } = {}) {
+  // Accept only local authorization paths; the OAuth handler validates their parameters.
+  const connection = returnTo.startsWith('/oauth/authorize?');
+  const returnQuery = connection ? `?return_to=${encodeURIComponent(returnTo)}` : '';
   const signup = mode === "signup";
   const title = signup ? "Create your Sovereign" : "Welcome back";
   const button = signup ? "Create account" : "Sign in";
   const alternate = signup
-    ? '<p class="switch">Already have an account? <a href="/login">Sign in</a></p>'
-    : '<p class="switch">New to Sovereign? <a href="/signup">Create account</a></p>';
+    ? `<p class="switch">Already have an account? <a href="/login${escapeHtml(returnQuery)}">Sign in</a></p>`
+    : `<p class="switch">New to Sovereign? <a href="/signup${escapeHtml(returnQuery)}">Create account</a></p>`;
   const nameField = signup ? '<label>Name<input name="name" autocomplete="name" required></label>' : "";
   return page(title, `
     <main class="auth-shell">
@@ -12,6 +15,7 @@ export function authPageHtml({ mode = "login" } = {}) {
       <section class="auth-card">
         <p class="eyebrow">Persistent intelligence infrastructure</p>
         <h1>${title}</h1>
+        ${connection?'<p class="lede">Sign in to the Sovereign workspace you want to connect. You will review permissions before allowing access.</p>':''}
         <form id="auth-form">
           ${nameField}
           <label>Email<input name="email" type="email" autocomplete="email" required></label>
@@ -20,6 +24,7 @@ export function authPageHtml({ mode = "login" } = {}) {
           <p id="message" class="message" aria-live="polite"></p>
         </form>
         ${alternate}
+        ${connection?'<p class="switch"><a href="/oauth/cancel">Cancel connection</a></p>':''}
       </section>
     </main>
     <script>

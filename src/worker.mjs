@@ -16,8 +16,8 @@ export default {
     try {
       const url = new URL(request.url);
 
-      if (request.method === "GET" && url.pathname === "/login") return html(authPageHtml({ mode: "login" }));
-      if (request.method === "GET" && url.pathname === "/signup") return html(authPageHtml({ mode: "signup" }));
+      if (request.method === "GET" && url.pathname === "/login") return html(authPageHtml({ mode: "login", returnTo: url.searchParams.get('return_to') || '' }));
+      if (request.method === "GET" && url.pathname === "/signup") return html(authPageHtml({ mode: "signup", returnTo: url.searchParams.get('return_to') || '' }));
       if (url.pathname === "/api/auth" || url.pathname.startsWith("/api/auth/")) {
         return await proxyNeonAuth(request, { baseUrl: env.NEON_AUTH_BASE_URL });
       }

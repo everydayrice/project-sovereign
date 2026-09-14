@@ -1,8 +1,32 @@
-# V1 acceptance status — 2026-09-07
+# V1 acceptance status — 2026-09-14
 
 V1 is not complete. Merged implementation and unit tests are not substitutes for production acceptance. This record distinguishes completed evidence from remaining work.
 
-## September 9 standalone ChatGPT follow-up
+## Current evidence: September 14
+
+Standalone ChatGPT connection acceptance passed. The owner confirmed task creation,
+checkpoint persistence and retrieval in a fresh ChatGPT conversation through the
+production MCP connection. This establishes the core continuity path; it does not
+complete the remaining V1 gates below.
+
+Merged fixes: [PR24](https://github.com/everydayrice/project-sovereign/pull/24)
+adds the build command; [PR25](https://github.com/everydayrice/project-sovereign/pull/25)
+adds cancellation/expiry recovery; [PR26](https://github.com/everydayrice/project-sovereign/pull/26)
+repairs consent Origin handling while retaining CSRF checks; and
+[PR27](https://github.com/everydayrice/project-sovereign/pull/27) restores extension
+grant freshness metadata so normalized workspace loading succeeds.
+Production migrations 0006 and 0007 were applied. Main at verification was
+`ac392f659bb87e323229e6de75ee9cd38ae78fb1`; CI and Workers Builds succeeded.
+The PR27 run passed 78 ordinary tests with 8 opt-in tests skipped. Separate isolated
+Neon calls verified task creation/read, session check-in, checkpoint and fresh-server
+resume. These are prior verification results, not a new test run for this document.
+
+The connected workspace also saved and retrieved a real project baseline and five
+prioritized backlog tasks, with persistence version 25 after checkout. Canonical
+status remained revision 0 with no approved records. Existing conversation history
+has not been automatically imported or promoted.
+
+## Historical September 9 follow-up (superseded by current evidence)
 
 RICE Lightning/Queue is an optional external integration, not a Sovereign launch
 dependency. Historical Queue references below do not define the standalone release gate.
@@ -28,10 +52,10 @@ See [ChatGPT connection](CHATGPT-CONNECTION.md) for the exact setup and acceptan
 | 3 | Ask Sovereign | PASS | ORBIT TEST source-backed answer worked without canonical promotion; production has zero canonical records. |
 | 4 | Canonical lifecycle | BLOCKED | Candidate review, approval, history and reversing proposals implemented and tested locally; production browser lifecycle not completed. |
 | 5 | Conflict | BLOCKED | Explicit subject/type/scope contradictions surfaced without writes in tests; live conflicting-evidence review pending. No claim of semantic contradiction detection. |
-| 6 | Continuity | BLOCKED | Production Console task create, work, checkpoint, checkout, reload/resume and completion passed. Full two-actor handoff acceptance remains pending. |
+| 6 | Continuity | BLOCKED | Production Console task create, work, checkpoint, checkout, reload/resume and completion passed. Production ChatGPT cross-conversation resume also passed September 14. Full two-actor handoff acceptance remains pending. |
 | 7 | Traffic | BLOCKED | Domain overlap/lease tests pass; complete live two-actor overlap matrix remains unverified. |
-| 8 | Runtime portability | BLOCKED | HTTP/MCP share normalized contracts; independently deployed Queue adapter merged. Queue connection is not configured. |
-| 9 | Real MCP client | BLOCKED | Scope/transport/operation tests pass locally. Full real-client acceptance and database transport suite remain incomplete. |
+| 8 | Runtime portability | PARTIAL | HTTP/MCP share normalized contracts; production ChatGPT connection passed. Additional independent provider acceptance remains pending. Queue configuration is optional. |
+| 9 | Real MCP client | PASS (core) | Production ChatGPT account linking, task creation, checkpoint and fresh-conversation retrieval passed September 14. Broader failure/concurrency coverage remains in gate 14. |
 | 10 | Trust Recovery | BLOCKED | Scoped pause, human repair and preserved review history implemented/tested locally; controlled live repair pending. |
 | 11 | Extension | BLOCKED | Queue PR47 passed typecheck/build/Worker dry run and merged. Production installation, scoped credential binding and revoke acceptance await Cloudflare access. |
 | 12 | Legacy dry run | PASS | Two real records pinned to one repository commit previewed against the production tenant's exported normalized state, with historical authority, original active lifecycle, dates and three checkpoints. Zero writes. Browser synthetic dry run also passed; apply/rollback remains unverified live. |
@@ -39,7 +63,7 @@ See [ChatGPT connection](CHATGPT-CONNECTION.md) for the exact setup and acceptan
 | 14 | Failure handling | BLOCKED | Real Neon transactional tenant-reference guards and extension grant checks passed; complete DB/R2/parser/auth/concurrency/revocation production matrix remains pending. |
 | 15 | Mobile | BLOCKED | Responsive layout and accessible review dialogs implemented; no supported viewport control or completed mobile browser acceptance. |
 
-## Current verification
+## Historical September 7 verification
 
 64 ordinary tests passed, 7 opt-in database integration tests skipped in that run. Separate disposable-Neon tests verified Ideas tenant guards and normalized extension/Owner/event persistence; all their fixtures rolled back. An earlier broad WebSocket integration run did not complete reliably and is not counted as a pass.
 
@@ -50,7 +74,7 @@ The browser connection stalled at the native synthetic-import confirmation. Insp
 - Production acceptance of role/grant administration and supported versioned policies; broader arbitrary policy types remain unsupported.
 - Broader real connector and practical document/spreadsheet parser coverage; unsupported formats currently remain explicitly stored/unparsed.
 - Full structured retrieval filters and expanded intelligence workflows.
-- Queue production configuration, full machine-client acceptance, live recovery/canonical/traffic acceptance, and mobile verification.
+- Live recovery/canonical/traffic acceptance, broader machine-client failure coverage, and mobile verification. Queue production configuration remains optional integration work.
 - Release/version promotion and final adversarial review after all acceptance gates pass.
 
 No V1 completion or release promotion is claimed.

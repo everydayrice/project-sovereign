@@ -71,7 +71,7 @@ test("The Gateway drives source, initialization, canonical review, and Console s
   assert.equal((await status.json()).current_canonical_revision, 1);
 
   const intelligenceConsole = await request(ctx.gateway, "/console/intelligence", { headers: ctx.headers });
-  assert.match(await intelligenceConsole.text(), /Canonical Intelligence/);
+  assert.match(await intelligenceConsole.text(), /Knowledge/);
 });
 
 test("A test transport credential cannot invent a principal or cross a tenant boundary", async () => {

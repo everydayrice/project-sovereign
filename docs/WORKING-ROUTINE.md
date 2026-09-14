@@ -40,3 +40,27 @@ Name the project in each task and record its source references. Until project sc
 has been verified, a project name in a title is an organizational convention, not an
 access-control boundary. Tenant permissions remain the hard isolation boundary.
 Sovereign is an independent product; business tenants and optional extensions are consumers.
+
+## Project links
+
+Projects use active approved Canonical Intelligence records of type `project`.
+Tasks link to those stable record IDs through their existing `intelligence_references`.
+One task may carry several references; assigning a project through the Project field
+replaces project references while preserving other knowledge references.
+
+In Continuity, choose Project when creating or editing a task. The Project filter
+on Continuity and Knowledge filters tasks, task-linked checkpoints and saved records.
+Knowledge records match the project's `scope.project` key, plus the project record itself.
+Workspace health, reviews, candidates, search and Ask remain workspace-wide. The filter
+is organizational, not a permission boundary. Unassigned tasks remain in All projects.
+
+MCP `task_create`, `task_update` and `continuity_get` accept `project_id`, an active
+canonical project record ID. An empty string clears a task's project assignment.
+The HTTP task endpoints accept the same field/filter. Assignment and filtered reads
+validate that the project belongs to the authenticated tenant. Sessions and checkpoints
+retain their task link; resume returns the task's intelligence references.
+
+Creating new project knowledge follows the existing canonical proposal/owner approval
+workflow. This does not create a second project registry, import other businesses,
+or add project-specific permissions. Reversing project scope or using duplicate scope
+keys requires reconciliation of affected records before relying on filtered results.

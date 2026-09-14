@@ -26,7 +26,7 @@ const TOOL_DEFINITIONS = Object.freeze([
     type: "object", properties: { record_id: { type: "string" }, mode: { enum: ["status","understanding","records"] }, history: { type: "boolean" } }
   }),
   tool("continuity_get", "List durable Continuity tasks, sessions, candidate memories, or Ideas.", {
-    type: "object", properties: { kind: { enum: ["tasks","task","sessions","memories","ideas"] }, task_capsule_id: { type: "string" } }
+    type: "object", properties: { project_id: {type:"string",description:"Approved canonical project record ID; task updates accept an empty string to clear the project link."}, kind: { enum: ["tasks","task","sessions","memories","ideas"] }, task_capsule_id: { type: "string" } }
   }),
   tool("resume", "Build a durable resume packet for a Task Capsule without transcript copying.", {
     type: "object", required: ["task_capsule_id"], properties: { task_capsule_id: { type: "string" } }
@@ -34,13 +34,13 @@ const TOOL_DEFINITIONS = Object.freeze([
   tool("extension_events", "Read pending events for the authenticated extension installation.", { type: "object", properties: {} }),
   tool("extension_acknowledge", "Acknowledge a processed extension event; consumers deduplicate by event ID.", { type: "object", properties: { event_id: { type: "string" } }, required: ["event_id"] }),
   tool("task_create", "Create a durable non-canonical Task Capsule.", {
-    type: "object", required: ["title","objective"], properties: {
+    type: "object", required: ["title","objective"], properties: { project_id: {type:"string",description:"Approved canonical project record ID; task updates accept an empty string to clear the project link."},
       title: { type: "string" }, objective: { type: "string" }, next_action: { type: "string" }, state: { enum: ["planned","active","waiting","blocked","completed","cancelled"] },
       blockers: { type: "array", items: { type: "string" } }, intelligence_references: { type: "array" }
     }
   }),
   tool("task_update", "Update a durable Task Capsule.", {
-    type: "object", required: ["task_capsule_id"], properties: {
+    type: "object", required: ["task_capsule_id"], properties: { project_id: {type:"string",description:"Approved canonical project record ID; task updates accept an empty string to clear the project link."},
       task_capsule_id: { type: "string" }, title: { type: "string" }, objective: { type: "string" }, next_action: { type: "string" },
       state: { enum: ["planned","active","waiting","blocked","completed","cancelled"] }, blockers: { type: "array", items: { type: "string" } }, intelligence_references: { type: "array" }
     }

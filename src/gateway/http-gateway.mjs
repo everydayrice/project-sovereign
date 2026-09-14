@@ -65,9 +65,9 @@ async function route({ request, url, auth, platform, files }) {
   command.requirePrincipal(auth.tenantId, auth.principalId);
   const base = { tenantId: auth.tenantId, principalId: auth.principalId };
 
-  if (request.method === "GET" && path === "/v1/console/snapshot") return json(buildConsoleSnapshot({ platform, tenantId: auth.tenantId }));
+  if (request.method === "GET" && path === "/v1/console/snapshot") return json(buildConsoleSnapshot({ platform, tenantId: auth.tenantId, projectId: url.searchParams.get("project_id") || undefined }));
   const consolePage = /^\/console(?:\/(home|command|intelligence|control-plane|continuity|sources|integrations|extensions|audit))?$/.exec(path);
-  if (request.method === "GET" && consolePage) return html(consoleShellHtml(buildConsoleSnapshot({ platform, tenantId: auth.tenantId }), consolePage[1] ?? "home"));
+  if (request.method === "GET" && consolePage) return html(consoleShellHtml(buildConsoleSnapshot({ platform, tenantId: auth.tenantId, projectId: url.searchParams.get("project_id") || undefined }), consolePage[1] ?? "home"));
   if (request.method === "GET" && path === "/v1/extensions") return json({ installations: platform.extensions.list(auth.tenantId) });
   if (request.method === "POST" && path === "/v1/extensions/install") { const body = await bodyJson(request); return json(platform.extensions.install({ ...base, manifest: body.manifest, grantedScopes: body.granted_scopes ?? [] }), 201); }
   const extensionAction = /^\/v1\/extensions\/([^/]+)\/(enable|disable|revoke|uninstall)$/.exec(path);
@@ -166,12 +166,12 @@ async function route({ request, url, auth, platform, files }) {
   if (request.method === "POST" && path === "/v1/improvement/corrections") { const body = await bodyJson(request); return json(improvement.reportCorrection({ ...base, scope: body.scope, summary: body.summary, expectedBehavior: body.expected_behavior, actualBehavior: body.actual_behavior, evidence: body.evidence, canonicalRevision: body.canonical_revision })); }
   if (request.method === "GET" && path === "/v1/improvement/health") return json(improvement.health(auth.tenantId));
 
-  if (request.method === "GET" && path === "/v1/continuity/tasks") return json({ tasks: continuity.listTasks(auth.tenantId) });
+  if (request.method === "GET" && path === "/v1/continuity/tasks") return json({ tasks: continuity.listTasks(auth.tenantId, {projectId:url.searchParams.get("project_id") || undefined}) });
   const taskUpdate = /^\/v1\/continuity\/tasks\/([^/]+)$/.exec(path);
-  if (request.method === "PATCH" && taskUpdate) { const body = await bodyJson(request); return json({ task_capsule: continuity.updateTaskCapsule({ tenantId: auth.tenantId, taskCapsuleId: taskUpdate[1], title: body.title, objective: body.objective, state: body.state, nextAction: body.next_action, blockers: body.blockers }) }); }
+  if (request.method === "PATCH" && taskUpdate) { const body = await bodyJson(request); return json({ task_capsule: continuity.updateTaskCapsule({ tenantId: auth.tenantId, taskCapsuleId: taskUpdate[1], title: body.title, objective: body.objective, state: body.state, nextAction: body.next_action, blockers: body.blockers, projectId:body.project_id }) }); }
   const taskResume = /^\/v1\/continuity\/tasks\/([^/]+)\/resume$/.exec(path);
   if (request.method === "GET" && taskResume) return json(continuity.resumePacket({ tenantId: auth.tenantId, taskCapsuleId: taskResume[1], currentTraffic: traffic.currentTraffic({ tenantId: auth.tenantId }) }));
-  if (request.method === "POST" && path === "/v1/continuity/tasks") { const body = await bodyJson(request); return json({ task_capsule: continuity.createTaskCapsule({ ...base, ownerPrincipalId: auth.principalId, title: body.title, objective: body.objective, nextAction: body.next_action }) }, 201); }
+  if (request.method === "POST" && path === "/v1/continuity/tasks") { const body = await bodyJson(request); return json({ task_capsule: continuity.createTaskCapsule({ ...base, ownerPrincipalId: auth.principalId, title: body.title, objective: body.objective, nextAction: body.next_action, projectId:body.project_id }) }, 201); }
   if (request.method === "POST" && path === "/v1/control-plane/check-in") { const body = await bodyJson(request); const result = traffic.checkIn({ ...base, actor: body.actor, objective: body.objective, taskCapsuleId: body.task_capsule_id, parentTrafficSessionId: body.parent_traffic_session_id, requestedResources: body.requested_resources ?? [], contextAppetite: body.context_appetite ?? "standard", permissions: auth.permissions ?? [] }); if (body.task_capsule_id) continuity.createSessionCapsule({ tenantId: auth.tenantId, actorInstanceId: result.actor_instance.actor_instance_id, taskCapsuleId: body.task_capsule_id }); if (body.accept_handoff_id) continuity.acceptHandoff({ tenantId: auth.tenantId, handoffId: body.accept_handoff_id, actorInstanceId: result.actor_instance.actor_instance_id }); return json(result, 201); }
   if (request.method === "GET" && path === "/v1/control-plane/traffic") { const resourceId = url.searchParams.get("resource_id"); return json({ traffic: traffic.currentTraffic({ tenantId: auth.tenantId, resource: resourceId || undefined }) }); }
   if (request.method === "GET" && path === "/v1/control-plane/traffic-board") return json(traffic.trafficBoard({ tenantId: auth.tenantId }));

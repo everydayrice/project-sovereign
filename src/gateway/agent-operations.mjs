@@ -72,7 +72,7 @@ export async function executeAgentOperation({ name, args = {}, auth, persistence
     } else if (args.kind === "sessions") payload = { sessions: platform.continuity.listSessions(auth.tenantId, { taskCapsuleId: args.task_capsule_id }) };
     else if (args.kind === "memories") payload = { candidate_memories: platform.continuity.listCandidateMemories(auth.tenantId) };
     else if (args.kind === "ideas") payload = { ideas: ideaStore ? await ideaStore.list({ tenantId: auth.tenantId, states: args.states }) : platform.continuity.listIdeas(auth.tenantId) };
-    else payload = { tasks: platform.continuity.listTasks(auth.tenantId, { states: args.states }).map(task => {
+    else payload = { tasks: platform.continuity.listTasks(auth.tenantId, { states: args.states, projectId:args.project_id }).map(task => {
       const checkpoints = platform.store.list("trafficCheckpoints", item => item.tenant_id === auth.tenantId && item.task_capsule_id === task.task_capsule_id).sort((a,b) => b.created_at.localeCompare(a.created_at));
       return { ...task, checkpoint_count: checkpoints.length, latest_checkpoint: checkpoints[0] ?? null };
     }) };
@@ -87,7 +87,7 @@ export async function executeAgentOperation({ name, args = {}, auth, persistence
       nextAction: args.next_action,
       state: args.state ?? "active",
       blockers: args.blockers ?? [],
-      intelligenceReferences: args.intelligence_references ?? []
+      intelligenceReferences: args.intelligence_references ?? [], projectId:args.project_id
     });
   } else if (name === "task_update") {
     payload = platform.continuity.updateTaskCapsule({
@@ -98,7 +98,7 @@ export async function executeAgentOperation({ name, args = {}, auth, persistence
       state: args.state,
       nextAction: args.next_action,
       blockers: args.blockers,
-      intelligenceReferences: args.intelligence_references
+      intelligenceReferences: args.intelligence_references, projectId:args.project_id
     });
   } else if (name === "idea_create") {
     if (!ideaStore) throw new SovereignError("idea_store_not_configured", "Normalized Idea storage is not configured.", { status: 503 });

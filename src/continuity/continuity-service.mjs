@@ -1,3 +1,4 @@
+import { withProject, requireProject } from './project-links.mjs';
 import { newId } from "../platform/ids.mjs";
 import { SovereignError, requireCondition } from "../platform/errors.mjs";
 
@@ -12,19 +13,19 @@ export class ContinuityService {
     this.clock = clock;
   }
 
-  createTaskCapsule({ tenantId, ownerPrincipalId, title, objective, nextAction, state = "active", blockers = [], intelligenceReferences = [] }) {
+  createTaskCapsule({ tenantId, ownerPrincipalId, title, objective, nextAction, state = "active", blockers = [], intelligenceReferences = [], projectId }) {
     requireCondition(title?.trim() && objective?.trim(), "task_identity_required", "Task title and objective are required.");
     requireCondition(TASK_STATES.has(state), "task_state_invalid", "Task state is invalid.");
     const timestamp = this.now();
     return this.store.put("taskCapsules", {
       task_capsule_id: newId("tsk"), tenant_id: tenantId, owner_principal_id: ownerPrincipalId,
       title: title.trim(), objective: objective.trim(), state, next_action: nextAction ?? null,
-      blockers: normalizeStrings(blockers), intelligence_references: normalizeReferences(intelligenceReferences),
+      blockers: normalizeStrings(blockers), intelligence_references: normalizeReferences(withProject(this.store,tenantId,intelligenceReferences,projectId)),
       revision: 1, created_at: timestamp, updated_at: timestamp
     });
   }
 
-  updateTaskCapsule({ tenantId, taskCapsuleId, title, objective, state, nextAction, blockers, intelligenceReferences }) {
+  updateTaskCapsule({ tenantId, taskCapsuleId, title, objective, state, nextAction, blockers, intelligenceReferences, projectId }) {
     const task = this.requireTask(tenantId, taskCapsuleId);
     if (title !== undefined) requireCondition(typeof title === "string" && title.trim(), "task_identity_required", "Task title is required.");
     if (objective !== undefined) requireCondition(typeof objective === "string" && objective.trim(), "task_identity_required", "Task objective is required.");
@@ -37,15 +38,16 @@ export class ContinuityService {
       ...(state !== undefined ? { state } : {}),
       ...(nextAction !== undefined ? { next_action: nextAction || null } : {}),
       ...(blockers !== undefined ? { blockers: normalizeStrings(blockers) } : {}),
-      ...(intelligenceReferences !== undefined ? { intelligence_references: normalizeReferences(intelligenceReferences) } : {}),
+      ...((intelligenceReferences !== undefined || projectId !== undefined) ? { intelligence_references: normalizeReferences(withProject(this.store,tenantId,intelligenceReferences ?? task.intelligence_references,projectId)) } : {}),
       revision: current.revision + 1,
       updated_at: timestamp
     }));
   }
 
-  listTasks(tenantId, { states } = {}) {
+  listTasks(tenantId, { states, projectId } = {}) {
+    if(projectId)requireProject(this.store,tenantId,projectId);
     const allowedStates = states?.length ? new Set(states) : null;
-    return this.store.list("taskCapsules", (task) => task.tenant_id === tenantId && (!allowedStates || allowedStates.has(task.state)))
+    return this.store.list("taskCapsules", (task) => task.tenant_id === tenantId && (!projectId || task.intelligence_references?.includes(projectId)) && (!allowedStates || allowedStates.has(task.state)))
       .sort((left, right) => right.updated_at.localeCompare(left.updated_at));
   }
 

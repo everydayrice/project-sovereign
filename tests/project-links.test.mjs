@@ -1,0 +1,25 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {createSovereignPlatform} from '../src/platform/sovereign-platform.mjs';
+import {buildConsoleSnapshot} from '../src/console/console-snapshot.mjs';
+test('project links survive resume, filter tasks and reject foreign or non-project records',()=>{
+ const p=createSovereignPlatform();const t=p.command.createTenant({slug:'scope-test',displayName:'Test'});const owner=p.command.createPrincipal({tenantId:t.tenant_id,displayName:'Owner'});
+ const base={tenantId:t.tenant_id,principalId:owner.principal_id};
+ const prop=p.intelligence.proposeChangeSet({...base,title:'Projects',reason:'Test approved scopes',operations:[...['A','B'].map(x=>({type:'add',record:{recordType:'project',payload:{title:x},scope:{project:x}}})),{type:'add',record:{recordType:'decision',payload:{title:'A decision'},scope:{project:'A'}}}]});
+ p.intelligence.approveChangeSet({...base,changeSetId:prop.change_set.canonical_change_set_id});
+ const [a,b,decision]=prop.operations.map(x=>x.created_record_id);
+ const task=p.continuity.createTaskCapsule({tenantId:t.tenant_id,ownerPrincipalId:owner.principal_id,title:'Work A',objective:'Scope',projectId:a,intelligenceReferences:[decision]});
+ const other=p.continuity.createTaskCapsule({tenantId:t.tenant_id,ownerPrincipalId:owner.principal_id,title:'Work B',objective:'Scope',projectId:b});
+ assert.deepEqual(p.continuity.listTasks(t.tenant_id,{projectId:a}).map(x=>x.task_capsule_id),[task.task_capsule_id]);
+ assert.ok(p.continuity.resumePacket({tenantId:t.tenant_id,taskCapsuleId:task.task_capsule_id}).intelligence_references.includes(a));
+ const snap=buildConsoleSnapshot({platform:p,tenantId:t.tenant_id,projectId:a});
+ assert.equal(snap.continuity.tasks.length,1);assert.equal(snap.canonical_records.length,2);
+ p.continuity.updateTaskCapsule({tenantId:t.tenant_id,taskCapsuleId:task.task_capsule_id,projectId:b});
+ assert.deepEqual(p.continuity.requireTask(t.tenant_id,task.task_capsule_id).intelligence_references,[decision,b]);
+ p.continuity.updateTaskCapsule({tenantId:t.tenant_id,taskCapsuleId:task.task_capsule_id,projectId:''});
+ assert.deepEqual(p.continuity.requireTask(t.tenant_id,task.task_capsule_id).intelligence_references,[decision]);
+ assert.throws(()=>p.continuity.updateTaskCapsule({tenantId:t.tenant_id,taskCapsuleId:other.task_capsule_id,projectId:decision}));
+ const foreign=p.command.createTenant({slug:'foreign-scope',displayName:'Foreign'});
+ assert.throws(()=>p.continuity.listTasks(foreign.tenant_id,{projectId:a}));
+ assert.throws(()=>buildConsoleSnapshot({platform:p,tenantId:foreign.tenant_id,projectId:a}));
+});

@@ -65,7 +65,8 @@ export function createMcpOAuth({ store, authenticate, resolveBinding }) {
             return consentPage({ client, params, csrf, scopes, email: identity.user?.email || 'Signed-in user', issuer });
           }
           const cookie = (request.headers.get('cookie') || '').split(';').map(v=>v.trim()).find(v=>v.startsWith(`${cookieName}=`))?.slice(cookieName.length+1);
-          if (request.headers.get('origin') !== issuer || !cookie || cookie !== params.get('csrf')) fail('access_denied','Consent expired. Start the connection again.',403);
+          if (request.headers.get('origin') !== issuer) fail('access_denied','This connection page could not be verified. Start the connection again.',403);
+          if (!cookie || cookie !== params.get('csrf')) fail('access_denied','Consent expired. Start the connection again.',403);
           const redirect = new URL(redirectUri);
           redirect.searchParams.set('iss',issuer);
           if (params.has('state')) redirect.searchParams.set('state',params.get('state'));
@@ -143,6 +144,9 @@ function recoveryPage({title,message,restartPath,status=200}) {
   }});
 }
 function consentPage({client,params,csrf,scopes,email}) {
+  // Native form POSTs send Origin: null under no-referrer, which fails the
+  // strict origin check above. same-origin preserves it for this local form
+  // while still suppressing referrers to external OAuth callbacks.
   const fields = ['client_id','redirect_uri','response_type','resource','code_challenge','code_challenge_method','state'];
   const hidden = fields.filter(k=>params.has(k)).map(k=>`<input type="hidden" name="${k}" value="${escape(params.get(k))}">`).join('');
   return new Response(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Connect to Sovereign</title>
@@ -152,5 +156,5 @@ function consentPage({client,params,csrf,scopes,email}) {
   <p>Canonical changes remain subject to human approval. You can revoke this connection in Command → Machine access.</p>
   <small>Return to: ${escape(new URL(params.get('redirect_uri')).origin)}. Client name is supplied by the connecting application.</small>
   <form method="post" action="/oauth/authorize">${hidden}<input type="hidden" name="scope" value="${escape(scopes.join(' '))}"><input type="hidden" name="csrf" value="${csrf}"><button name="decision" value="deny">Cancel</button><button name="decision" value="allow">Allow connection</button></form></main></html>`,
-  {headers:{'content-type':'text/html; charset=utf-8','cache-control':'no-store','referrer-policy':'no-referrer','content-security-policy':"default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",'set-cookie':`${cookieName}=${csrf}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=600`}});
+  {headers:{'content-type':'text/html; charset=utf-8','cache-control':'no-store','referrer-policy':'same-origin','content-security-policy':"default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",'set-cookie':`${cookieName}=${csrf}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=600`}});
 }

@@ -8,6 +8,7 @@
     "node": ">=22"
   },
   "scripts": {
+    "build": "npm run check",
     "test": "node --test",
     "test:coverage": "node --test --experimental-test-coverage",
     "check": "find src -name '*.mjs' -print0 | xargs -0 -n 1 node --check && node -e \"const fs=require('node:fs'); JSON.parse(fs.readFileSync('contracts/v0.2/sovereign-core.schema.json')); JSON.parse(fs.readFileSync('contracts/v0.2/product-alpha.schema.json'));\""

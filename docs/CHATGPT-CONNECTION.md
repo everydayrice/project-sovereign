@@ -4,17 +4,19 @@ Sovereign is the only connection needed for its intelligence and continuity. Git
 Neon and R2 remain server-side implementation dependencies. This connection does not
 require RICE Lightning or Queue.
 
-## Release prerequisite
+## Deployment prerequisites
 
-Apply reviewed migration `0006_mcp_oauth.sql` before deploying this change. It adds
-OAuth client and grant tables; it does not migrate or delete existing knowledge.
+For a new deployment, apply reviewed migrations through `0007_extension_grant_freshness.sql`.
+Migration 0006 adds OAuth client and grant tables; 0007 preserves extension-grant
+freshness metadata. Both are applied in the existing production deployment as of
+September 14, 2026.
 No additional Worker, bucket, API key, or environment secret is required.
 
 ## Link your account
 
 1. In ChatGPT on the web, open Settings → Security and login → Developer mode.
 2. Open Plugins, select the plus button, and create a developer-mode app.
-3. Name it **Sovereign**. Use `https://project-sovereign.ricecloud.workers.dev/mcp`.
+3. Name it **Project Sovereign**. Use `https://project-sovereign.ricecloud.workers.dev/mcp`.
 4. Select OAuth with dynamic client registration. Leave static client credentials empty.
 5. Sign in to Sovereign and approve the displayed workspace permissions.
 6. Select Sovereign in a new ChatGPT conversation.
@@ -53,7 +55,29 @@ An empty workspace does not establish that historic RICE Command knowledge was i
 - `node scripts/oauth-sql-acceptance.mjs` produces rollback-only SQL using the actual
   store queries. Run on the isolated migrated Neon branch to verify expiry, replay,
   owner permissions, token rotation and revocation against PostgreSQL.
-- Production account linking and real ChatGPT calls are separate acceptance gates.
+- Production account linking, task save/checkpoint and retrieval in a fresh ChatGPT
+  conversation passed September 14, 2026. See [acceptance evidence](V1-ACCEPTANCE.md).
 
 The administrative JSON export deliberately excludes OAuth clients, code hashes,
 refresh hashes and service tokens. Existing knowledge export behavior is unchanged.
+
+## Owner, user and client
+
+The person signing in is a Sovereign user. A workspace owner can also administer
+that workspace. ChatGPT is the OAuth client receiving the permissions granted at
+consent. Connecting ChatGPT does not create another product administrator or require
+a fresh personal email. Use the Sovereign account that holds the intended workspace.
+Tenant display names do not make RICE Lightning a runtime dependency.
+
+## Cancellation and expired consent
+
+Cancel returns a readable recovery page. If consent expires, start a fresh connection
+attempt through ChatGPT; refreshing a completed or expired authorization submission
+is not a new consent flow. The deployed consent page preserves same-origin headers
+while enforcing Origin and CSRF validation. Do not disable these checks to retry.
+
+## After acceptance
+
+Use the [working routine](WORKING-ROUTINE.md) to resume existing work and save progress.
+A saved task/checkpoint is durable Continuity; approved Canonical Intelligence follows
+its separate proposal/review policy.

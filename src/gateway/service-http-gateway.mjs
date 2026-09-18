@@ -41,6 +41,9 @@ function routeFor(method, pathname) {
   const ideaMatch = /^\/continuity\/ideas\/([^/]+)$/.exec(path);
   if (method === "PATCH" && ideaMatch) return route("idea_update", async (request) => ({ ...(await jsonBody(request)), idea_id: decodeURIComponent(ideaMatch[1]) }));
   if (method === "POST" && path === "/continuity/checkpoint") return route("task_checkpoint", bodyArgs, 201);
+  if (method === "POST" && path === "/continuity/handoffs") return route("handoff_create", bodyArgs, 201);
+  const handoffMatch = /^\/continuity\/handoffs\/([^/]+)\/(accept|complete)$/.exec(path);
+  if (method === "POST" && handoffMatch) return route(`handoff_${handoffMatch[2]}`, async (request) => ({ ...(await jsonBody(request)), handoff_id: decodeURIComponent(handoffMatch[1]) }));
   if (method === "GET" && path === "/traffic") return route("traffic_current", trafficArgs);
   if (method === "POST" && path === "/traffic/claims") return route("resource_claim", bodyArgs, 201);
   const activateMatch = /^\/traffic\/claims\/([^/]+)\/activate$/.exec(path);
@@ -57,7 +60,7 @@ function route(operation, readArgs, status) { return { operation, readArgs, stat
 async function bodyArgs(request) { return jsonBody(request); }
 async function searchArgs(_request, url) { return { query: url.searchParams.get("q") ?? "", source_id: url.searchParams.get("source_id") || undefined, limit: Number(url.searchParams.get("limit") || 12) }; }
 async function intelligenceArgs(_request, url) { return { record_id: url.searchParams.get("record_id") || undefined, mode: url.searchParams.get("mode") || "status", history: url.searchParams.get("history") === "true" }; }
-async function continuityArgs(_request, url) { return { kind: url.searchParams.get("kind") || "tasks", task_capsule_id: url.searchParams.get("task_capsule_id") || undefined, states: url.searchParams.getAll("state") }; }
+async function continuityArgs(_request, url) { return { kind: url.searchParams.get("kind") || "tasks", task_capsule_id: url.searchParams.get("task_capsule_id") || undefined, project_id: url.searchParams.get("project_id") || undefined, states: url.searchParams.getAll("state") }; }
 async function trafficArgs(_request, url) { return { resource_id: url.searchParams.get("resource_id") || undefined, board: url.searchParams.get("board") !== "false" }; }
 
 async function jsonBody(request) {

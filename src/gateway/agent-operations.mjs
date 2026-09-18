@@ -14,6 +14,9 @@ export const AGENT_OPERATIONS = Object.freeze({
   idea_create: op(["continuity:write"], false),
   idea_update: op(["continuity:write"], false),
   task_checkpoint: op(["continuity:write", "traffic:write"], true),
+  handoff_create: op(["continuity:write", "traffic:write"], true),
+  handoff_accept: op(["continuity:write", "traffic:write"], true),
+  handoff_complete: op(["continuity:write", "traffic:write"], true),
   traffic_current: op(["traffic:read"], false),
   resource_claim: op(["traffic:write"], true),
   resource_release: op(["traffic:write"], true),
@@ -115,6 +118,11 @@ export async function executeAgentOperation({ name, args = {}, auth, persistence
     });
   } else if (name === "task_checkpoint") {
     payload = platform.traffic.checkpoint({ ...base, trafficSessionId: args.traffic_session_id, kind: args.kind ?? "progress", summary: args.summary, nextAction: args.next_action, blockers: args.blockers ?? [], artifactReferences: args.artifact_references ?? [], sessionState: args.session_state });
+  } else if (name === "handoff_create") {
+    payload = platform.traffic.handoff({ ...base, trafficSessionId: args.traffic_session_id, toActorInstanceId: args.to_actor_instance_id, taskCapsuleId: args.task_capsule_id, summary: args.summary, nextAction: args.next_action });
+  } else if (name === "handoff_accept" || name === "handoff_complete") {
+    const method = name === "handoff_accept" ? "acceptHandoff" : "completeHandoff";
+    payload = platform.traffic[method]({ ...base, trafficSessionId: args.traffic_session_id, handoffId: args.handoff_id });
   } else if (name === "traffic_current") {
     payload = args.board === false ? { traffic: platform.traffic.currentTraffic({ tenantId: auth.tenantId, resource: args.resource_id }) } : platform.traffic.trafficBoard({ tenantId: auth.tenantId });
   } else if (name === "resource_claim") {

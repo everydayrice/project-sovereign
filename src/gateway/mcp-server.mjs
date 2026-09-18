@@ -67,6 +67,14 @@ const TOOL_DEFINITIONS = Object.freeze([
       blockers: { type: "array", items: { type: "string" } }, artifact_references: { type: "array" }, session_state: { enum: ["active","waiting","blocked"] }
     }
   }),
+  tool("handoff_create", "Offer a durable handoff from an active task-linked session; does not release its resource claims.", {
+    type: "object", required: ["traffic_session_id", "summary"], properties: {
+      traffic_session_id: { type: "string" }, task_capsule_id: { type: "string" }, to_actor_instance_id: { type: "string" }, summary: { type: "string" }, next_action: { type: "string" }
+    }
+  }),
+  ...["accept", "complete"].map((action) => tool(`handoff_${action}`, `${action === "accept" ? "Accept" : "Complete"} a durable handoff using the receiving actor's live task-linked session.`, {
+    type: "object", required: ["traffic_session_id", "handoff_id"], properties: { traffic_session_id: { type: "string" }, handoff_id: { type: "string" } }
+  })),
   tool("traffic_current", "Inspect current Sovereign traffic and Resource Claims.", {
     type: "object", properties: { resource_id: { type: "string" }, board: { type: "boolean" } }
   }),

@@ -127,6 +127,27 @@ export class TrafficService {
     return handoff;
   }
 
+  acceptHandoff({ tenantId, principalId, trafficSessionId, handoffId }) {
+    const session = this.requireLiveSession(tenantId, principalId, trafficSessionId);
+    const handoff = this.store.requireTenant("handoffs", handoffId, tenantId);
+    requireCondition(session.task_capsule_id === handoff.task_capsule_id, "handoff_task_mismatch", "Receiving session must reference the handoff task.");
+    const accepted = this.continuity.acceptHandoff({ tenantId, handoffId, actorInstanceId: session.actor_instance_id });
+    this.checkpoint({ tenantId, principalId, trafficSessionId, kind: "handoff", summary: `Accepted handoff: ${handoff.summary}`, nextAction: handoff.next_action });
+    this.audit({ tenantId, principalId, actorInstanceId: session.actor_instance_id, trafficSessionId, eventType: "continuity.handoff_accepted", subjectType: "handoff", subjectId: handoffId });
+    return accepted;
+  }
+
+  completeHandoff({ tenantId, principalId, trafficSessionId, handoffId }) {
+    const session = this.requireLiveSession(tenantId, principalId, trafficSessionId);
+    const handoff = this.store.requireTenant("handoffs", handoffId, tenantId);
+    requireCondition(session.task_capsule_id === handoff.task_capsule_id, "handoff_task_mismatch", "Receiving session must reference the handoff task.");
+    requireCondition(handoff.to_actor_instance_id === session.actor_instance_id, "handoff_not_assigned", "Only the receiving actor can complete a handoff.", { status: 403 });
+    const completed = this.continuity.completeHandoff({ tenantId, handoffId });
+    this.heartbeat({ tenantId, principalId, trafficSessionId, silent: true });
+    this.audit({ tenantId, principalId, actorInstanceId: session.actor_instance_id, trafficSessionId, eventType: "continuity.handoff_completed", subjectType: "handoff", subjectId: handoffId });
+    return completed;
+  }
+
   releaseClaim({ tenantId, principalId, resourceClaimId }) {
     const claim = this.store.requireTenant("resourceClaims", resourceClaimId, tenantId);
     const session = this.requireSession(tenantId, principalId, claim.traffic_session_id);

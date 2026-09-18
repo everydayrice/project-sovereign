@@ -176,6 +176,9 @@ export class ContinuityService {
     if (!taskCapsuleId) throw new SovereignError("handoff_task_required", "A handoff requires a Task Capsule.");
     requireCondition(summary?.trim(), "handoff_summary_required", "Handoff summary is required.");
     this.requireTask(tenantId, taskCapsuleId);
+    this.store.requireTenant("trafficSessions", fromTrafficSession.traffic_session_id, tenantId);
+    requireCondition(fromTrafficSession.task_capsule_id === taskCapsuleId, "handoff_task_mismatch", "Handoff must reference the sending session's task.");
+    if (toActorInstanceId) this.store.requireTenant("actorInstances", toActorInstanceId, tenantId);
     const timestamp = this.now();
     return this.store.put("handoffs", {
       handoff_id: newId("hnd"), tenant_id: tenantId,
@@ -187,6 +190,7 @@ export class ContinuityService {
 
   acceptHandoff({ tenantId, handoffId, actorInstanceId }) {
     const handoff = this.store.requireTenant("handoffs", handoffId, tenantId);
+    this.store.requireTenant("actorInstances", actorInstanceId, tenantId);
     if (handoff.state !== "offered") throw new SovereignError("handoff_unavailable", "Handoff is not available.", { status: 409 });
     if (handoff.to_actor_instance_id && handoff.to_actor_instance_id !== actorInstanceId) {
       throw new SovereignError("handoff_not_assigned", "Handoff is assigned to another Actor Instance.", { status: 403 });

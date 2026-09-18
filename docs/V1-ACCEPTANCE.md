@@ -2,6 +2,39 @@
 
 V1 is not complete. Merged implementation and unit tests are not substitutes for production acceptance. This record distinguishes completed evidence from remaining work.
 
+## September 17 foundation continuation
+
+The shared machine Gateway now implements `handoff_create`, `handoff_accept`, and
+`handoff_complete` over HTTP and MCP. Receiving sessions must be live, belong to the
+authenticated principal, reference the handoff task, and match its assigned actor.
+Source and recipient actors are tenant-validated. Acceptance creates a durable
+checkpoint; acceptance/completion retain audit events. Completion of a handoff does
+not complete its Task Capsule or release claims; actors explicitly check out.
+
+The HTTP Continuity list now forwards `project_id` instead of silently ignoring it.
+Five new regression tests cover cross-transport lifecycle, invalid transitions,
+principal/task/scope/tenant rejection, distinct-principal handoff and project filtering.
+`npm run check` and `npm test` passed: **87 passed, 8 opt-in database tests skipped**.
+
+Separately, `scripts/canonical-reversal-acceptance.mjs` passed on the existing isolated
+Neon branch `br-silent-wave-ayb8z6d5`: canonical update/reversal preserved three record
+revisions, and two actors offered/accepted/completed a handoff with fresh normalized
+SQL hydration between operations. The enclosing transaction rolled back, and the
+fixture tenant's absence was verified. Production data was not used for these writes.
+This establishes real SQL behavior, not cross-transaction or production browser
+acceptance. Full standalone V1 acceptance and release promotion remain open.
+
+Machine handoff endpoints:
+
+- `POST /api/v1/continuity/handoffs`: `traffic_session_id`, `summary`, optional
+  `next_action`, `task_capsule_id` (must match sender), `to_actor_instance_id`.
+- `POST /api/v1/continuity/handoffs/:id/accept`: receiving `traffic_session_id`.
+- `POST /api/v1/continuity/handoffs/:id/complete`: receiving `traffic_session_id`.
+
+All three require both `continuity:write` and `traffic:write`, and return a persistence
+receipt only after saving. SDK and HTTP tests use isolated local authentication
+fixtures; they are not evidence of acceptance by a second independent AI provider.
+
 ## Current evidence: September 14
 
 Standalone ChatGPT connection acceptance passed. The owner confirmed task creation,

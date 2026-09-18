@@ -1,8 +1,9 @@
+import { parseDelimited, parseJsonRecords, splitStructuredRecords } from './structured-file-parser.mjs';
 import { stableHash } from "../platform/ids.mjs";
 import { analyzeStructuredText } from "./structured-text-analyzer.mjs";
 
 const TEXT_EXTENSIONS = new Set([
-  "txt","md","markdown","json","jsonl","csv","tsv","xml","yaml","yml","toml",
+  "txt","md","markdown","json","jsonl","ndjson","csv","tsv","xml","yaml","yml","toml",
   "js","mjs","cjs","ts","tsx","jsx","css","scss","html","htm","sql","py","rb","go","rs","java","kt","swift","php","sh","bash","zsh","ps1","env","ini","conf","log"
 ]);
 
@@ -10,7 +11,7 @@ export function supportsAutomaticTextIngestion({ fileName = "", mimeType = "" } 
   const extension = extensionOf(fileName);
   const mime = String(mimeType ?? "").toLowerCase();
   return mime.startsWith("text/") ||
-    ["application/json","application/ld+json","application/xml","application/sql"].includes(mime) ||
+    ["application/json","application/x-ndjson","application/ndjson","application/ld+json","application/xml","application/sql"].includes(mime) ||
     TEXT_EXTENSIONS.has(extension) ||
     (mime === "application/octet-stream" && TEXT_EXTENSIONS.has(extension));
 }
@@ -26,8 +27,8 @@ export function ingestTextSource({ text, sourceId, sourceItemId, fileName = "sou
     chunk_text: chunk.text,
     content_hash: stableHash(chunk.text),
     parser_key: parser,
-    parser_version: "1.0",
-    metadata: { file_name: fileName, mime_type: mimeType, source_id: sourceId, source_item_id: sourceItemId }
+    parser_version: "1.1",
+    metadata: { ...chunk.metadata, file_name: fileName, mime_type: mimeType, source_id: sourceId, source_item_id: sourceItemId }
   }));
 
   const structured = ["md","markdown"].includes(extension)
@@ -36,7 +37,7 @@ export function ingestTextSource({ text, sourceId, sourceItemId, fileName = "sou
 
   return {
     parser,
-    parser_version: "1.0",
+    parser_version: "1.1",
     normalized_text_length: normalized.length,
     chunks,
     candidates: structured.candidates ?? []
@@ -45,8 +46,8 @@ export function ingestTextSource({ text, sourceId, sourceItemId, fileName = "sou
 
 export function chunkText(text, { parser = "plain_text_v1", fileName = "source.txt", maxChars = 1800 } = {}) {
   if (!text.trim()) return [];
-  if (parser === "json_v1") return chunkJson(text, maxChars);
-  if (parser === "delimited_v1") return chunkDelimited(text, maxChars);
+  if (parser === "json_v1" || parser === "jsonl_v1") return splitStructuredRecords(parseJsonRecords(text, parser === "jsonl_v1"), maxChars);
+  if (parser === "delimited_v1" || parser === "tsv_v1") return splitStructuredRecords(parseDelimited(text, parser === "tsv_v1" ? "\t" : ","), maxChars);
   if (parser === "source_code_v1") return chunkCode(text, maxChars, fileName);
   return chunkNarrative(text, maxChars);
 }
@@ -79,36 +80,6 @@ function chunkNarrative(text, maxChars) {
   }
   flush();
   return packBlocks(blocks, maxChars);
-}
-
-function chunkJson(text, maxChars) {
-  try {
-    const value = JSON.parse(text);
-    if (Array.isArray(value)) {
-      return packBlocks(value.map((item, index) => ({ heading: `Item ${index + 1}`, text: JSON.stringify(item, null, 2) })), maxChars);
-    }
-    if (value && typeof value === "object") {
-      return packBlocks(Object.entries(value).map(([key, item]) => ({ heading: key, text: JSON.stringify(item, null, 2) })), maxChars);
-    }
-  } catch {}
-  return chunkNarrative(text, maxChars);
-}
-
-function chunkDelimited(text, maxChars) {
-  const lines = text.split("\n").filter((line) => line.trim());
-  if (!lines.length) return [];
-  const header = lines[0];
-  const blocks = [];
-  let rows = [];
-  for (const line of lines.slice(1)) {
-    const next = [header, ...rows, line].join("\n");
-    if (next.length > maxChars && rows.length) {
-      blocks.push({ heading: "Tabular rows", text: [header, ...rows].join("\n") });
-      rows = [line];
-    } else rows.push(line);
-  }
-  if (rows.length || lines.length === 1) blocks.push({ heading: "Tabular rows", text: rows.length ? [header, ...rows].join("\n") : header });
-  return blocks;
 }
 
 function chunkCode(text, maxChars, fileName) {
@@ -152,8 +123,10 @@ function packBlocks(blocks, maxChars) {
 }
 
 function parserFor(extension, mimeType) {
-  if (extension === "json" || extension === "jsonl" || String(mimeType).includes("json")) return "json_v1";
-  if (["csv","tsv"].includes(extension)) return "delimited_v1";
+  if (["jsonl","ndjson"].includes(extension) || String(mimeType).includes("ndjson")) return "jsonl_v1";
+  if (extension === "json" || String(mimeType).includes("json")) return "json_v1";
+  if (extension === "tsv" || String(mimeType).includes("tab-separated-values")) return "tsv_v1";
+  if (extension === "csv" || String(mimeType).includes("csv")) return "delimited_v1";
   if (["js","mjs","cjs","ts","tsx","jsx","css","scss","html","htm","sql","py","rb","go","rs","java","kt","swift","php","sh","bash","zsh","ps1"].includes(extension)) return "source_code_v1";
   if (["md","markdown"].includes(extension)) return "markdown_v1";
   return "plain_text_v1";
@@ -166,5 +139,5 @@ function extensionOf(fileName) {
 }
 
 function normalizeText(value) {
-  return String(value ?? "").replace(/\r\n?/g, "\n").replace(/\u0000/g, "").trim();
+  return String(value ?? "").replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n").replace(/\u0000/g, "");
 }

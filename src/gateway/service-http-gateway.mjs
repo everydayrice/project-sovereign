@@ -1,3 +1,4 @@
+import { searchArgsFromUrl } from '../intelligence/search-filters.mjs';
 import { SovereignError } from "../platform/errors.mjs";
 import { executeAgentOperation } from "./agent-operations.mjs";
 
@@ -58,7 +59,7 @@ function routeFor(method, pathname) {
 
 function route(operation, readArgs, status) { return { operation, readArgs, status }; }
 async function bodyArgs(request) { return jsonBody(request); }
-async function searchArgs(_request, url) { return { query: url.searchParams.get("q") ?? "", source_id: url.searchParams.get("source_id") || undefined, limit: Number(url.searchParams.get("limit") || 12) }; }
+async function searchArgs(_request, url) { return searchArgsFromUrl(url); }
 async function intelligenceArgs(_request, url) { return { record_id: url.searchParams.get("record_id") || undefined, mode: url.searchParams.get("mode") || "status", history: url.searchParams.get("history") === "true" }; }
 async function continuityArgs(_request, url) { return { kind: url.searchParams.get("kind") || "tasks", task_capsule_id: url.searchParams.get("task_capsule_id") || undefined, project_id: url.searchParams.get("project_id") || undefined, states: url.searchParams.getAll("state") }; }
 async function trafficArgs(_request, url) { return { resource_id: url.searchParams.get("resource_id") || undefined, board: url.searchParams.get("board") !== "false" }; }

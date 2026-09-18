@@ -1,3 +1,4 @@
+import { searchArgsFromUrl } from './intelligence/search-filters.mjs';
 import {GOVERNANCE_PERMISSIONS} from './command/governance-admin.mjs';
 import { previewLegacy, applyLegacy, rollbackLegacy } from "./portability/legacy-import.mjs";
 import { exportTenant } from "./portability/export.mjs";
@@ -9,7 +10,7 @@ import { createNeonSessionAuthenticator } from "./auth/neon-session-auth.mjs";
 import { createServiceAuthenticator, createServiceCredentialStore, SERVICE_SCOPES } from "./auth/service-credentials.mjs";
 import { R2FileService } from "./files/r2-file-service.mjs";
 import { SovereignError } from "./platform/errors.mjs";
-import { ingestTextSource, supportsAutomaticTextIngestion } from "./analysis/source-ingestion.mjs";
+import { ingestStoredSource, supportsAutomaticIngestion } from "./analysis/document-ingestion.mjs";
 import { sourceInitializePageHtml } from "./console/source-initialize-page.mjs";
 import { serviceCredentialsPageHtml } from "./console/service-credentials-page.mjs";
 import { RetrievalService } from "./intelligence/retrieval-service.mjs";
@@ -143,7 +144,8 @@ export default {
       if (request.method === "GET" && url.pathname === "/v1/search") {
         const { binding } = await loadBoundPlatform({ request, authenticate, persistence });
         if (!retrieval) throw new SovereignError("search_not_configured", "Sovereign search is not configured.", { status: 503 });
-        const result = await retrieval.search({ tenantId: binding.tenant_id, query: url.searchParams.get("q") ?? "", sourceId: url.searchParams.get("source_id") || undefined, limit: Number(url.searchParams.get("limit") || 12) });
+        const args = searchArgsFromUrl(url);
+        const result = await retrieval.search({ tenantId: binding.tenant_id, query: args.query, sourceId: args.source_id, limit: args.limit, filters: args.filters });
         return Response.json(result);
       }
 
@@ -151,7 +153,7 @@ export default {
         const { binding } = await loadBoundPlatform({ request, authenticate, persistence });
         if (!retrieval) throw new SovereignError("search_not_configured", "Sovereign retrieval is not configured.", { status: 503 });
         const body = await jsonBody(request);
-        const result = await retrieval.ask({ tenantId: binding.tenant_id, query: body.query, sourceId: body.source_id, limit: body.limit ?? 8 });
+        const result = await retrieval.ask({ tenantId: binding.tenant_id, query: body.query, sourceId: body.source_id, filters: body.filters, limit: body.limit ?? 8 });
         return Response.json(result);
       }
 
@@ -196,7 +198,7 @@ async function handleUploadWithAutomaticProcessing({ request, env, authenticate,
   return Response.json({ ...upload, processing }, { status: uploadResponse.status });
 }
 
-async function processStoredSource({ request, sourceId, authenticate, persistence, files, tolerateUnsupported = false }) {
+export async function processStoredSource({ request, sourceId, authenticate, persistence, files, tolerateUnsupported = false }) {
   files.assertConfigured();
   const { binding, loaded, platform } = await loadBoundPlatform({ request, authenticate, persistence });
   const tenantId = binding.tenant_id;
@@ -208,7 +210,7 @@ async function processStoredSource({ request, sourceId, authenticate, persistenc
   const item = sourceItems[0];
   if (item.storage_state !== "stored") throw new SovereignError("source_object_not_stored", "Source content must be stored in R2 before processing.", { status: 409 });
 
-  if (!supportsAutomaticTextIngestion({ fileName: item.display_name, mimeType: item.mime_type })) {
+  if (!supportsAutomaticIngestion({ fileName: item.display_name, mimeType: item.mime_type })) {
     if (tolerateUnsupported) {
       platform.sources.updateProcessing({ tenantId, sourceId, processingState: "partial", currentness: "partial" });
       platform.store.update("sources", sourceId, current => ({ ...current, metadata: { ...current.metadata, processing_note: "Stored safely; this format is not analyzed. Upload a text export to make its contents searchable." } }));
@@ -220,14 +222,26 @@ async function processStoredSource({ request, sourceId, authenticate, persistenc
 
   const object = await files.get({ tenantId, sourceId, sourceItemId: item.source_item_id });
   if (!object) throw new SovereignError("stored_object_not_found", "Stored source object was not found.", { status: 404 });
-  const text = typeof object.text === "function" ? await object.text() : await new Response(object.body).text();
-  const ingestion = ingestTextSource({
-    text,
+  let ingestion;
+  try { ingestion = await ingestStoredSource({
+    object,
     sourceId,
     sourceItemId: item.source_item_id,
     fileName: item.display_name,
     mimeType: item.mime_type
-  });
+  }); } catch (error) {
+    if (error.code !== 'source_parse_failed') throw error;
+    platform.sources.updateProcessing({ tenantId, sourceId, processingState: 'failed', currentness: 'failed', delta: { failedItemCount: 1, analyzedItemCount: 0, indexedItemCount: 0 } });
+    platform.store.update('sources', sourceId, current => ({ ...current, failure_reason: error.message,
+      metadata: { ...current.metadata, processing_note: 'Stored safely. Correct the file format and upload a new version.' } }));
+    platform.store.update('sourceItems', item.source_item_id, current => ({ ...current, item_state: 'failed',
+      metadata: { ...current.metadata, parse_error: error.message, chunk_count: 0 }, updated_at: new Date().toISOString() }));
+    const receipt = await persistence.saveTenant({ tenantId, store: platform.store, expectedVersion: loaded.version,
+      sourceChunkReplacements: [{ sourceId, sourceItemId: item.source_item_id, chunks: [] }] });
+    if (!tolerateUnsupported) throw error;
+    return { state: 'failed', automatic: true, searchable: false, analyzed: false, canonicalized: false,
+      processing_note: error.message, code: error.code, tenant_state_version: receipt.version };
+  }
 
   const run = platform.initialization.start({ tenantId, principalId, sourceIds: [sourceId], mode: "initialize" });
   const savedCandidates = [];
@@ -241,11 +255,13 @@ async function processStoredSource({ request, sourceId, authenticate, persistenc
   const timestamp = new Date().toISOString();
   platform.store.update("sourceItems", item.source_item_id, (current) => ({
     ...current, item_state: "analyzed",
-    metadata: { ...current.metadata, parser_key: ingestion.parser, parser_version: ingestion.parser_version, chunk_count: ingestion.chunks.length, normalized_text_length: ingestion.normalized_text_length, last_processed_at: timestamp },
+    metadata: { ...current.metadata, parse_error: null, parser_key: ingestion.parser, parser_version: ingestion.parser_version, chunk_count: ingestion.chunks.length, normalized_text_length: ingestion.normalized_text_length, last_processed_at: timestamp },
     updated_at: timestamp
   }));
   platform.initialization.recordSourceResult({ tenantId, runId: run.initialization_run_id, sourceId, state: "complete", itemCount: source.item_count, inventoriedItemCount: source.inventoried_item_count, analyzedItemCount: source.inventoried_item_count, candidateCount: savedCandidates.length, excludedCount: source.excluded_item_count, currentness: "current" });
   const completed = platform.initialization.complete({ tenantId, runId: run.initialization_run_id });
+  platform.store.update('sources', sourceId, current => ({ ...current, failure_reason: null, failed_item_count: 0,
+    metadata: { ...current.metadata, processing_note: null } }));
   const save = await persistence.saveTenant({ tenantId, store: platform.store, expectedVersion: loaded.version,
     sourceChunkReplacements: [{ sourceId, sourceItemId: item.source_item_id, chunks: ingestion.chunks }]
   });

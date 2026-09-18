@@ -1,3 +1,4 @@
+import { SEARCH_FILTER_SCHEMA } from '../intelligence/search-filters.mjs';
 import { createSovereignPlatform } from "../platform/sovereign-platform.mjs";
 import { SovereignError } from "../platform/errors.mjs";
 import { AGENT_OPERATIONS, executeAgentOperation, requireAgentScopes } from "./agent-operations.mjs";
@@ -17,10 +18,10 @@ const TOOL_DEFINITIONS = Object.freeze([
     type: "object", required: ["traffic_session_id"], properties: { traffic_session_id: { type: "string" }, requested_resources: { type: "array", items: { type: "object" } } }
   }),
   tool("search", "Search authorized Sovereign source material and Canonical Intelligence.", {
-    type: "object", required: ["query"], properties: { query: { type: "string" }, source_id: { type: "string" }, limit: { type: "integer", minimum: 1, maximum: 50 } }
+    type: "object", required: ["query"], properties: { query: { type: "string" }, filters: SEARCH_FILTER_SCHEMA, source_id: { type: "string" }, limit: { type: "integer", minimum: 1, maximum: 50 } }
   }),
   tool("ask", "Ask Sovereign a question using authorized source and canonical evidence.", {
-    type: "object", required: ["query"], properties: { query: { type: "string" }, source_id: { type: "string" }, limit: { type: "integer", minimum: 1, maximum: 50 } }
+    type: "object", required: ["query"], properties: { query: { type: "string" }, filters: SEARCH_FILTER_SCHEMA, source_id: { type: "string" }, limit: { type: "integer", minimum: 1, maximum: 50 } }
   }),
   tool("intelligence_get", "Get current Canonical Intelligence status, understanding, records, or a specific record.", {
     type: "object", properties: { record_id: { type: "string" }, mode: { enum: ["status","understanding","records"] }, history: { type: "boolean" } }

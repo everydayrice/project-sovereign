@@ -1,3 +1,4 @@
+import { normalizeSearchFilters, requireSearchLimit } from './search-filters.mjs';
 import { requireCondition } from "../platform/errors.mjs";
 
 export class RetrievalService {
@@ -5,25 +6,29 @@ export class RetrievalService {
     this.persistence = persistence;
   }
 
-  async search({ tenantId, query, sourceId, limit = 12 }) {
+  async search({ tenantId, query, sourceId, limit = 12, filters = {} }) {
     requireCondition(typeof query === "string" && query.trim(), "search_query_required", "Search query is required.");
-    const results = await this.persistence.searchTenant({ tenantId, query, sourceId, limit });
+    requireSearchLimit(limit);
+    const normalizedFilters = normalizeSearchFilters(filters);
+    const results = await this.persistence.searchTenant({ tenantId, query: query.trim(), sourceId, limit, filters: normalizedFilters });
     return {
       query: query.trim(),
+      filters: normalizedFilters,
       result_count: results.length,
       results
     };
   }
 
-  async ask({ tenantId, query, sourceId, limit = 8 }) {
+  async ask({ tenantId, query, sourceId, limit = 8, filters = {} }) {
     requireCondition(typeof query === "string" && query.trim(), "search_query_required", "A question is required.");
     // Natural questions contain words that need not appear in the evidence.
     // Keep Search's literal query semantics; normalize only Ask's retrieval.
     const retrievalQuery = meaningfulTerms(query).join(" ") || query.trim();
-    const search = await this.search({ tenantId, query: retrievalQuery, sourceId, limit });
+    const search = await this.search({ tenantId, query: retrievalQuery, sourceId, limit, filters });
     const answer = synthesizeExtractiveAnswer(query, search.results);
     return {
       query: query.trim(),
+      filters: search.filters,
       answer: answer.text,
       confidence: answer.confidence,
       evidence: answer.evidence,

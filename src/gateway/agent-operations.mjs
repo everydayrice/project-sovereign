@@ -60,9 +60,9 @@ export async function executeAgentOperation({ name, args = {}, auth, persistence
   } else if (name === "orient") {
     payload = platform.traffic.orientation({ ...base, trafficSessionId: args.traffic_session_id, requestedResources: args.requested_resources ?? [], permissions: auth.permissions });
   } else if (name === "search") {
-    payload = await retrieval.search({ tenantId: auth.tenantId, query: args.query, sourceId: args.source_id, limit: args.limit ?? 12 });
+    payload = await retrieval.search({ tenantId: auth.tenantId, query: args.query, sourceId: args.source_id, filters: args.filters, limit: args.limit ?? 12 });
   } else if (name === "ask") {
-    payload = await retrieval.ask({ tenantId: auth.tenantId, query: args.query, sourceId: args.source_id, limit: args.limit ?? 8 });
+    payload = await retrieval.ask({ tenantId: auth.tenantId, query: args.query, sourceId: args.source_id, filters: args.filters, limit: args.limit ?? 8 });
   } else if (name === "intelligence_get") {
     if (args.record_id) payload = platform.intelligence.getRecord({ tenantId: auth.tenantId, recordId: args.record_id });
     else if (args.mode === "understanding") payload = platform.intelligence.understanding({ tenantId: auth.tenantId });

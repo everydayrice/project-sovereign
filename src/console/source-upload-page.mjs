@@ -10,6 +10,7 @@ export function sourceUploadPageHtml({privacyPolicy={}}={}) {
       <h1>Upload a file</h1>
       <p class="lede">Upload it once. Sovereign stores it in managed R2 storage and automatically processes supported content. You do not need to initialize the file or review every extracted statement.</p>
       <form id="upload-form" method="post"><p>Choose files or drop them onto the file control. Maximum 25 MB per file.</p>
+        <p>Searchable formats include text, Markdown, JSON, CSV, PDF, DOCX and XLSX. Document parsing supports up to 10 MB and PDFs up to 100 pages. Scans need a text export; spreadsheet formulas are not recalculated.</p>
         <label>File<input id="file" name="file" type="file" multiple required></label>
         <label>Data classification
           <select name="data_classification">
@@ -40,6 +41,7 @@ export function sourceUploadPageHtml({privacyPolicy={}}={}) {
           const payload=await response.json().catch(()=>({}));
           if(!response.ok)throw Error(payload.message||'Upload failed.');
           completed++;
+          if(payload.processing?.state==='failed')failures.push(file.name+': stored, but not analyzed. '+(payload.processing.processing_note||'Check the file format.'));
         }catch(error){failures.push(file.name+': '+error.message);}
       }
       status.textContent=completed+' file(s) stored. '+failures.join(' ');

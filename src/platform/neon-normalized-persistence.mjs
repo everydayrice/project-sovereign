@@ -1,3 +1,5 @@
+import { requireSearchLimit } from '../intelligence/search-filters.mjs';
+import { buildSearchQuery } from '../intelligence/search-query.mjs';
 import {manageGovernance} from '../command/governance-admin.mjs';
 import { Client, neon } from "@neondatabase/serverless";
 import { InMemorySovereignStore } from "./store.mjs";
@@ -264,64 +266,16 @@ export function createNormalizedNeonPersistence(databaseUrl, { httpSql, clientFa
       }
     },
 
-    async searchTenant({ tenantId, query, sourceId, limit = 12 }) {
+    async searchTenant({ tenantId, query, sourceId, limit = 12, filters = {} }) {
       const normalizedQuery = String(query ?? "").trim();
       if (!normalizedQuery) return [];
-      const effectiveLimit = Math.max(1, Math.min(Number(limit) || 12, 50));
-      const rows = await sql.query(
-        `WITH q AS (SELECT websearch_to_tsquery('simple',$2) AS value),
-         source_hits AS (
-           SELECT 'source'::text AS result_kind, sc.source_chunk_id AS result_id, sc.source_id,
-                  sc.source_item_id, s.display_name AS source_name, sc.heading,
-                  sc.chunk_text AS excerpt, NULL::text AS record_type,
-                  ts_rank_cd(sc.search_vector,q.value) AS rank, sc.metadata,
-                  sc.ordinal
-             FROM intelligence.source_chunks sc
-             JOIN intelligence.sources s ON s.source_id=sc.source_id AND s.tenant_id=sc.tenant_id
-             JOIN intelligence.source_items si ON si.source_item_id=sc.source_item_id AND si.tenant_id=sc.tenant_id AND si.source_id=sc.source_id
-             CROSS JOIN q
-            WHERE sc.tenant_id=$1 AND si.privacy_state='included' AND COALESCE(s.metadata->>'archived','false') <> 'true' AND COALESCE(s.metadata->>'removed','false') <> 'true'
-              AND ($3::text IS NULL OR sc.source_id=$3)
-              AND sc.search_vector @@ q.value
-         ),
-         canonical_hits AS (
-           SELECT 'canonical'::text AS result_kind, r.intelligence_record_id AS result_id,
-                  NULL::text AS source_id, NULL::text AS source_item_id,
-                  'Canonical Intelligence'::text AS source_name, NULL::text AS heading,
-                  COALESCE(rr.after_snapshot->'payload',rr.content->'payload',rr.content)::text AS excerpt,
-                  r.record_type,
-                  ts_rank_cd(to_tsvector('simple',COALESCE(rr.after_snapshot,rr.content)::text),q.value) AS rank,
-                  jsonb_build_object('canonical_revision',r.current_canonical_revision,'authority_level',r.authority_level,'confidence',r.confidence) AS metadata,
-                  0 AS ordinal
-             FROM intelligence.records r
-             JOIN intelligence.record_revisions rr ON rr.intelligence_record_id=r.intelligence_record_id AND rr.revision=r.current_revision
-             CROSS JOIN q
-            WHERE r.tenant_id=$1 AND r.state='active'
-              AND ($3::text IS NULL OR r.source_ids ? $3)
-              AND rr.tenant_id=r.tenant_id
-              AND to_tsvector('simple',COALESCE(rr.after_snapshot,rr.content)::text) @@ q.value
-         )
-         SELECT * FROM (SELECT * FROM source_hits UNION ALL SELECT * FROM canonical_hits) hits
-         ORDER BY rank DESC, result_kind, ordinal
-         LIMIT $4`,
-        [tenantId, normalizedQuery, sourceId ?? null, effectiveLimit]
-      );
+      requireSearchLimit(limit);
+      const options = { tenantId, query: normalizedQuery, sourceId, limit, filters };
+      const search = buildSearchQuery(options);
+      const rows = await sql.query(search.text, search.params);
       if (rows.length) return rows.map(normalizeSearchResult);
-
-      const fallback = await sql.query(
-        `SELECT 'source'::text AS result_kind, sc.source_chunk_id AS result_id, sc.source_id,
-                sc.source_item_id, s.display_name AS source_name, sc.heading, sc.chunk_text AS excerpt,
-                NULL::text AS record_type, 0::real AS rank, sc.metadata, sc.ordinal
-           FROM intelligence.source_chunks sc
-           JOIN intelligence.sources s ON s.source_id=sc.source_id AND s.tenant_id=sc.tenant_id
-             JOIN intelligence.source_items si ON si.source_item_id=sc.source_item_id AND si.tenant_id=sc.tenant_id AND si.source_id=sc.source_id
-          WHERE sc.tenant_id=$1 AND si.privacy_state='included' AND COALESCE(s.metadata->>'archived','false') <> 'true' AND COALESCE(s.metadata->>'removed','false') <> 'true' AND ($3::text IS NULL OR sc.source_id=$3)
-            AND (sc.chunk_text ILIKE '%' || $2 || '%' OR COALESCE(sc.heading,'') ILIKE '%' || $2 || '%' OR s.display_name ILIKE '%' || $2 || '%')
-          ORDER BY sc.updated_at DESC, sc.ordinal
-          LIMIT $4`,
-        [tenantId, normalizedQuery, sourceId ?? null, effectiveLimit]
-      );
-      return fallback.map(normalizeSearchResult);
+      const fallback = buildSearchQuery({ ...options, fallback: true });
+      return (await sql.query(fallback.text, fallback.params)).map(normalizeSearchResult);
     },
 
     async health() {

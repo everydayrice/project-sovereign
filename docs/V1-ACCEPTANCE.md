@@ -1,6 +1,38 @@
-# V1 acceptance status — 2026-09-14
+# V1 acceptance status — 2026-09-18
 
 V1 is not complete. Merged implementation and unit tests are not substitutes for production acceptance. This record distinguishes completed evidence from remaining work.
+
+## September 18 retrieval and file continuation
+
+PR35 is merged at `4947d199e367c4301b4990f17b8af0462bc439e1`; main CI and the
+Cloudflare production build passed. GitHub write access is resolved.
+
+The next implementation adds structured search filters consistently across owner
+HTTP, service HTTP, MCP and Ask, with SQL filtering before ranking/limits and identical
+privacy predicates in full-text and substring fallback. Console evidence filters
+expose kind, record type and classification. CSV/TSV and JSONL now retain records and
+provenance; malformed structured input fails explicitly. PDF embedded text, DOCX body
+paragraphs/tables and XLSX stored cell values are parsed locally with bounded inputs.
+Original files remain stored on failure; failed parsing and stale-index removal are
+atomic. Successful retry clears failure metadata. See
+[retrieval and files](RETRIEVAL-AND-FILES.md) for exact contracts and format limits.
+
+Verification: `npm run check` and `npm test`: **97 passed, 9 opt-in tests skipped**.
+Separately, the new real-SQL test passed on `br-silent-wave-ayb8z6d5`: source/canonical
+kind, scope, record type, confidence, authority, classification, timestamps, source
+link, limit, wrong tenant, substring fallback, literal wildcard, excluded/archived
+sources and atomic failed index rollback. The outer transaction was rolled back and
+fixture absence verified. No production source or canonical writes were used.
+Generated PDF/DOCX/XLSX fixtures passed local Node extraction tests; Wrangler
+deployment dry-run bundled the Worker successfully (about 774 KiB gzip).
+
+Local Workerd launch could not run because this environment rejects network-interface
+enumeration (`uv_interface_addresses`); specifying loopback did not resolve it.
+Cloud Browser separately blocks the live Console URL. Neither is counted as a
+production browser or local Workerd execution pass. The remaining owner checks are
+listed in [manual acceptance](MANUAL-ACCEPTANCE.md). Independent-provider, mobile,
+full production failure/recovery, external connector authorization and final release
+acceptance are still open. Queue remains optional.
 
 ## September 17 foundation continuation
 
@@ -121,8 +153,8 @@ The browser connection stalled at the native synthetic-import confirmation. Insp
 ## Unfinished implementation scope
 
 - Production acceptance of role/grant administration and supported versioned policies; broader arbitrary policy types remain unsupported.
-- Broader real connector and practical document/spreadsheet parser coverage; unsupported formats currently remain explicitly stored/unparsed.
-- Full structured retrieval filters and expanded intelligence workflows.
+- Real external connector authorization/synchronization; OCR, legacy Office formats and complete document-layout interpretation remain unsupported. PDF/DOCX/XLSX text and structured text parsing are implemented with documented limits.
+- Structured retrieval filters are implemented; expanded intelligence workflows still need scope-specific acceptance.
 - Live recovery/canonical/traffic acceptance, broader machine-client failure coverage, and mobile verification. Queue production configuration remains optional integration work.
 - Release/version promotion and final adversarial review after all acceptance gates pass.
 

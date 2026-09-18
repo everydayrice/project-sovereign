@@ -14,7 +14,10 @@
     "check": "find src -name '*.mjs' -print0 | xargs -0 -n 1 node --check && node -e \"const fs=require('node:fs'); JSON.parse(fs.readFileSync('contracts/v0.2/sovereign-core.schema.json')); JSON.parse(fs.readFileSync('contracts/v0.2/product-alpha.schema.json'));\""
   },
   "dependencies": {
-    "@neondatabase/serverless": "^1.0.2"
+    "@neondatabase/serverless": "^1.0.2",
+    "fast-xml-parser": "5.11.1",
+    "fflate": "0.8.3",
+    "unpdf": "1.8.1"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.26.0"

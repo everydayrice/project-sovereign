@@ -3,7 +3,7 @@ export function authPageHtml({ mode = "login", returnTo = "" } = {}) {
   const connection = returnTo.startsWith('/oauth/authorize?');
   const returnQuery = connection ? `?return_to=${encodeURIComponent(returnTo)}` : '';
   const signup = mode === "signup";
-  const title = signup ? "Create your Sovereign" : "Welcome back";
+  const title = signup ? "Create your Sovereign" : "Sign in to Sovereign";
   const button = signup ? "Create account" : "Sign in";
   const alternate = signup
     ? `<p class="switch">Already have an account? <a href="/login${escapeHtml(returnQuery)}">Sign in</a></p>`
@@ -15,11 +15,12 @@ export function authPageHtml({ mode = "login", returnTo = "" } = {}) {
       <section class="auth-card">
         <p class="eyebrow">Persistent intelligence infrastructure</p>
         <h1>${title}</h1>
-        ${connection?'<p class="lede">Sign in to the Sovereign workspace you want to connect. You will review permissions before allowing access.</p>':''}
+        ${signup?'':'<p class="lede">Use the email and password you created for Project Sovereign. Accounts on other websites do not sign you in here.</p>'}
+        ${connection?'<p class="lede">After signing in, review the account and permissions before allowing the connection.</p>':''}
         <form id="auth-form">
           ${nameField}
           <label>Email<input name="email" type="email" autocomplete="email" required></label>
-          <label>Password<input name="password" type="password" autocomplete="${signup ? "new-password" : "current-password"}" minlength="8" required></label>
+          <label>Password<input name="password" type="password" autocomplete="${signup ? "new-password" : "current-password"}" ${signup ? 'minlength="8"' : ''} required></label>
           <button type="submit">${button}</button>
           <p id="message" class="message" aria-live="polite"></p>
         </form>
@@ -30,24 +31,67 @@ export function authPageHtml({ mode = "login", returnTo = "" } = {}) {
     <script>
       const form = document.getElementById('auth-form');
       const message = document.getElementById('message');
+      const button = form.querySelector('button[type="submit"]');
+      let submitting = false;
       form.addEventListener('submit', async (event) => {
         event.preventDefault();
+        if (submitting) return;
+        submitting = true;
+        button.disabled = true;
+        form.setAttribute('aria-busy', 'true');
         message.textContent = '${signup ? "Creating account…" : "Signing in…"}';
         const data = Object.fromEntries(new FormData(form));
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 20000);
         try {
           const response = await fetch('${signup ? "/api/auth/sign-up/email" : "/api/auth/sign-in/email"}', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             credentials: 'same-origin',
+            signal: controller.signal,
             body: JSON.stringify(data)
           });
-          const payload = await response.json().catch(() => ({}));
-          if (!response.ok) throw new Error(payload.message || payload.error?.message || 'Authentication failed.');
+          const payload = await response.json().catch((error) => { if (error.name === 'AbortError') throw error; return null; });
+          if (!response.ok) {
+            const code = payload?.code || payload?.error?.code;
+            if (response.status === 429) {
+              const retryAfter = Number(response.headers.get('retry-after'));
+              message.textContent = Number.isFinite(retryAfter) && retryAfter > 0 && retryAfter <= 3600
+                ? 'Too many attempts. Wait ' + Math.ceil(retryAfter) + ' seconds before trying again.'
+                : 'Too many attempts. Wait a little before trying again.';
+            } else if (response.status >= 500) {
+              message.textContent = 'Sovereign sign-in is temporarily unavailable. Please try again shortly.';
+            } else if (code === 'EMAIL_NOT_VERIFIED') {
+              message.textContent = 'Verify your email using the message sent when you created your Sovereign account, then sign in again.';
+            } else if (${!signup} && (response.status === 400 || response.status === 401 || code === 'INVALID_EMAIL_OR_PASSWORD')) {
+              message.textContent = 'The email or password is incorrect. Use your Project Sovereign credentials and try again.';
+              form.elements.password.value = '';
+              form.elements.password.focus();
+            } else {
+              message.textContent = '${signup ? 'Could not create an account with these details. If you already have a Sovereign account, choose Sign in.' : 'Sign-in could not be completed. Check your Sovereign account details and try again.'}';
+            }
+            return;
+          }
+          if (!payload || typeof payload !== 'object' || payload.error) {
+            message.textContent = 'Sovereign returned an unexpected sign-in response. Please try again.';
+            return;
+          }
           const requestedReturn = new URLSearchParams(window.location.search).get('return_to');
-          const returnUrl = new URL(requestedReturn || '/onboarding', window.location.origin);
-          window.location.assign(returnUrl.origin === window.location.origin && returnUrl.pathname === '/oauth/authorize' ? returnUrl.href : '/onboarding');
+          let destination = '/onboarding';
+          try {
+            const returnUrl = new URL(requestedReturn || '/onboarding', window.location.origin);
+            if (returnUrl.origin === window.location.origin && returnUrl.pathname === '/oauth/authorize') destination = returnUrl.href;
+          } catch { /* Invalid return paths use the safe onboarding destination. */ }
+          window.location.assign(destination);
         } catch (error) {
-          message.textContent = error.message || 'Authentication failed.';
+          message.textContent = error.name === 'AbortError'
+            ? 'Sign-in timed out. Check your connection and try again.'
+            : 'Could not reach Sovereign. Check your connection and try again.';
+        } finally {
+          clearTimeout(timeout);
+          submitting = false;
+          button.disabled = false;
+          form.setAttribute('aria-busy', 'false');
         }
       });
     </script>

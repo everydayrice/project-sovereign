@@ -1,6 +1,26 @@
-# V1 acceptance status — 2026-09-18
+# V1 acceptance status: 2026-10-14
 
 V1 is not complete. Merged implementation and unit tests are not substitutes for production acceptance. This record distinguishes completed evidence from remaining work.
+
+## October 14 deployment recovery
+
+Repository main through PR36 (`609777e5aecc325a4d278e731bbf33f326dd0455`) matched
+the successful September 18 Workers Build. Production `/health` returned HTTP 200
+with normalized Neon persistence, R2 and PostgreSQL full-text search. A fresh local
+run passed 97 tests, with 9 opt-in database tests skipped.
+
+OAuth connections use the existing 30-day authorization lifetime. Expired clients
+must reconnect through normal owner consent before authenticated write/read
+acceptance can be rerun. No authentication policy changes are included.
+
+The connection guide at `/connect` provides the instance's MCP URL, OAuth and scoped
+service-client setup, a copyable agent routine, and a two-way cross-tool acceptance
+checklist. Home and Integrations link to it. The landing page now reflects configured
+authentication rather than incorrectly warning that login is unavailable.
+
+This is usable alpha infrastructure, not a completed V1 release. An independent
+provider's authenticated round trip and the remaining gates below are still open.
+No automatic transcript capture or historical chat import is claimed.
 
 ## September 18 retrieval and file continuation
 

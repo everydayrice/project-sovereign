@@ -2,7 +2,7 @@ import { SovereignError } from "../platform/errors.mjs";
 import { buildConsoleSnapshot } from "../console/console-snapshot.mjs";
 import { consoleShellHtml, publicPageHtml } from "../console/console-shell.mjs";
 
-export function createHttpGateway({ platform, authenticate, prepareRequest, finalizeRequest, files, health }) {
+export function createHttpGateway({ platform, authenticate, prepareRequest, finalizeRequest, files, health, authenticationConfigured = false }) {
   return {
     async fetch(request) {
       const url = new URL(request.url);
@@ -10,7 +10,7 @@ export function createHttpGateway({ platform, authenticate, prepareRequest, fina
         const payload = health ? await health() : { status: "ok", runtime: "in_memory_alpha", authentication: "not_configured", persistence: "not_configured", storage: "not_configured" };
         return json(payload, payload.status === "ok" ? 200 : 503);
       }
-      if (request.method === "GET" && url.pathname === "/") return html(publicPageHtml());
+      if (request.method === "GET" && url.pathname === "/") return html(publicPageHtml({ authenticationConfigured }));
       if (request.method === "GET" && ["/login", "/signup"].includes(url.pathname)) return html(publicPageHtml({ page: url.pathname.slice(1) }));
 
       let requestContext;

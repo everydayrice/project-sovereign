@@ -103,18 +103,55 @@ test('Expired consent offers a fresh review without granting access or replaying
   assert.match(expired.headers.get('content-type'),/text\/html/);
   assert.equal(expired.headers.get('cache-control'),'no-store');
   const html=await expired.text();
-  assert.match(html,/Consent expired/);
-  const retry=html.match(/class="action" href="([^"]+)"/)[1].replaceAll('&amp;','&');
-  const retryUrl=new URL(retry,origin);
-  assert.equal(retryUrl.origin,origin);
-  assert.equal(retryUrl.searchParams.has('decision'),false);
-  assert.equal(retryUrl.searchParams.has('csrf'),false);
-  assert.equal(retryUrl.searchParams.get('state'),params.state);
-  const review=await ctx.server.fetch(new Request(retryUrl,{headers:{cookie:'session=valid'}}));
-  assert.equal(review.status,200);
-  assert.match(await review.text(),/Allow connection/);
-  assert.match(review.headers.get('set-cookie'),/__Host-sovereign-oauth-csrf=/);
+  assert.match(html,/expired or was already submitted/);
+  assert.match(html,/Allow connection/);
+  const csrfCookie=expired.headers.get('set-cookie').split(';')[0];
+  const csrf=csrfCookie.split('=')[1];
+  assert.notEqual(csrf,'expired');
+  assert.match(html,new RegExp(`name="csrf" value="${csrf}"`));
+  const loginPath=html.match(/href="([^"]+)">Use a different account/)[1].replaceAll('&amp;','&');
+  const loginUrl=new URL(loginPath,origin);
+  const restart=new URL(loginUrl.searchParams.get('return_to'),origin);
+  assert.equal(loginUrl.pathname,'/login');
+  assert.equal(restart.origin,origin);
+  assert.equal(restart.pathname,'/oauth/authorize');
+  assert.equal(restart.searchParams.has('decision'),false);
+  assert.equal(restart.searchParams.has('csrf'),false);
+  assert.equal(restart.searchParams.get('state'),params.state);
   assert.equal(ctx.grants.length,0);
+  const approved=await ctx.post('/oauth/authorize',{...params,decision:'allow',csrf},{origin,cookie:'session=valid; '+csrfCookie});
+  assert.equal(approved.status,303);
+  assert.equal(ctx.grants.length,1);
+});
+
+test('Consent policy permits the registered callback redirect without permitting arbitrary origins or policy injection',async()=>{
+  const ctx=fixture();const {params}=await setup(ctx);
+  const callback='https://client.example.test:8443/callback;script-src?next=https://unrelated.test';
+  const client=await ctx.store.register({client_id:'test-client',client_name:'Client',redirect_uris:[callback]});
+  const consentParams={...params,client_id:client.client_id,redirect_uri:callback};
+  const consent=await ctx.server.fetch(new Request(origin+'/oauth/authorize?'+new URLSearchParams(consentParams),{headers:{cookie:'session=valid'}}));
+  const policy=consent.headers.get('content-security-policy');
+  assert.equal(policy,"default-src 'none'; style-src 'unsafe-inline'; form-action 'self' https://client.example.test:8443; frame-ancestors 'none'; base-uri 'none'");
+  const csrfCookie=consent.headers.get('set-cookie').split(';')[0];
+  const csrf=csrfCookie.split('=')[1];
+  for(const decision of ['allow','deny']) {
+    const response=await ctx.post('/oauth/authorize',{...consentParams,decision,csrf},{origin,cookie:'session=valid; '+csrfCookie});
+    assert.equal(response.status,303);
+    const returned=new URL(response.headers.get('location'));
+    assert.equal(returned.origin,new URL(callback).origin);
+    assert.equal(returned.pathname,new URL(callback).pathname);
+    assert.equal(returned.searchParams.get('state'),params.state);
+    assert.ok(policy.includes(`form-action 'self' ${returned.origin};`));
+  }
+  for(const redirectUri of ['https://*.example.test/callback','https://example.test;script-src/callback']) {
+    const registration=await ctx.server.fetch(new Request(origin+'/oauth/register',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({redirect_uris:[redirectUri]})}));
+    assert.equal(registration.status,400);
+    // Old stored registrations must not inject policy either.
+    await ctx.store.register({client_id:'old-client',redirect_uris:[redirectUri]});
+    const response=await ctx.server.fetch(new Request(origin+'/oauth/authorize?'+new URLSearchParams({...params,client_id:'old-client',redirect_uri:redirectUri}),{headers:{cookie:'session=valid'}}));
+    assert.equal(response.status,400);
+    assert.equal(response.headers.has('location'),false);
+  }
 });
 
 test('Login cancellation, expired sessions and invalid callbacks have safe recovery pages',async()=>{

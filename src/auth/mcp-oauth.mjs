@@ -39,7 +39,7 @@ export function createMcpOAuth({ store, authenticate, resolveBinding }) {
           const params = request.method === 'POST' ? new URLSearchParams(await request.text()) : url.searchParams;
           const client = await store.client(params.get('client_id'));
           const redirectUri = params.get('redirect_uri');
-          if (!client || !client.redirect_uris.includes(redirectUri)) fail('invalid_request','Client or callback URL is not registered.');
+          if (!client || !client.redirect_uris.includes(redirectUri) || !validRedirect(redirectUri)) fail('invalid_request','Client or callback URL is not registered.');
           if (params.get('response_type') !== 'code') fail('unsupported_response_type','Use the authorization-code flow.');
           if (params.get('resource') !== resource) fail('invalid_target','The resource must be this Sovereign MCP endpoint.');
           const challenge = params.get('code_challenge');
@@ -62,11 +62,16 @@ export function createMcpOAuth({ store, authenticate, resolveBinding }) {
           if (!binding) fail('access_denied','Create your Sovereign workspace before connecting an AI client.',403);
           if (request.method === 'GET') {
             const csrf = random();
-            return consentPage({ client, params, csrf, scopes, email: identity.user?.email || 'Signed-in user', issuer });
+            return consentPage({ client, params, csrf, scopes, email: identity.user?.email || 'Signed-in user', restartPath });
           }
           const cookie = (request.headers.get('cookie') || '').split(';').map(v=>v.trim()).find(v=>v.startsWith(`${cookieName}=`))?.slice(cookieName.length+1);
           if (request.headers.get('origin') !== issuer) fail('access_denied','This connection page could not be verified. Start the connection again.',403);
-          if (!cookie || cookie !== params.get('csrf')) fail('access_denied','Consent expired. Start the connection again.',403);
+          if (!cookie || cookie !== params.get('csrf')) {
+            // A stale page never approves access. Give this verified session a
+            // fresh review so the user can explicitly submit a new decision.
+            return consentPage({ client, params, csrf:random(), scopes, email:identity.user?.email || 'Signed-in user', restartPath,
+              status:403, notice:'This permission page expired or was already submitted. Review the account and permissions below, then choose Allow connection again.' });
+          }
           const redirect = new URL(redirectUri);
           redirect.searchParams.set('iss',issuer);
           if (params.has('state')) redirect.searchParams.set('state',params.get('state'));
@@ -126,7 +131,12 @@ export function createMcpOAuth({ store, authenticate, resolveBinding }) {
 
 function fail(code,message,status=400) { throw Object.assign(new Error(message),{oauthCode:code,status}); }
 function json(data,status=200) { return Response.json(data,{status,headers:{'cache-control':'no-store','pragma':'no-cache'}}); }
-function validRedirect(value) { try { const u=new URL(value); return typeof value==='string' && value.length<2048 && u.protocol==='https:' && !u.hash && !u.username && !u.password; } catch { return false; } }
+function validRedirect(value) { try {
+  const u=new URL(value);
+  // URL accepts wildcard and semicolon hosts; neither is an exact CSP source.
+  const exactOrigin=/^https:\/\/(?:[a-z0-9.-]+|\[[a-f0-9:]+\])(?::\d+)?$/i.test(u.origin);
+  return typeof value==='string' && value.length<2048 && exactOrigin && !u.hash && !u.username && !u.password;
+} catch { return false; } }
 function base64(bytes) { return btoa(String.fromCharCode(...bytes)).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,''); }
 function random() { return base64(crypto.getRandomValues(new Uint8Array(32))); }
 async function sha256Base64(value) { return base64(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value)))); }
@@ -143,18 +153,22 @@ function recoveryPage({title,message,restartPath,status=200}) {
     'content-security-policy':"default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'"
   }});
 }
-function consentPage({client,params,csrf,scopes,email}) {
+function consentPage({client,params,csrf,scopes,email,restartPath,status=200,notice=''}) {
   // Native form POSTs send Origin: null under no-referrer, which fails the
   // strict origin check above. same-origin preserves it for this local form
   // while still suppressing referrers to external OAuth callbacks.
+  // Browsers can apply form-action to the 303 callback too. Permit only this
+  // already-validated callback origin, never raw callback path/query text.
+  const callbackOrigin = new URL(params.get('redirect_uri')).origin;
+  const loginPath = `/login?return_to=${encodeURIComponent(restartPath)}`;
   const fields = ['client_id','redirect_uri','response_type','resource','code_challenge','code_challenge_method','state'];
   const hidden = fields.filter(k=>params.has(k)).map(k=>`<input type="hidden" name="${k}" value="${escape(params.get(k))}">`).join('');
   return new Response(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Connect to Sovereign</title>
   <style>body{font:16px/1.5 system-ui;margin:0;background:#f7f7f5;color:#111}main{max-width:580px;margin:8vh auto;padding:28px;background:white;border:1px solid #ddd;border-radius:16px}button{font:inherit;padding:12px 20px;margin:8px;cursor:pointer}li{overflow-wrap:anywhere}small{overflow-wrap:anywhere}</style>
-  <main><p>SOVEREIGN</p><h1>Connect ${escape(client.client_name)}?</h1><p>Signed in as ${escape(email)}.</p>
+  <main><p>SOVEREIGN</p><h1>Connect ${escape(client.client_name)}?</h1>${notice?`<p role="alert">${escape(notice)}</p>`:''}<p>Signed in as ${escape(email)}. <a href="${escape(loginPath)}">Use a different account</a></p>
   <p>This client requests access to your workspace:</p><ul>${scopes.map(s=>`<li>${escape(s)}</li>`).join('')}</ul>
   <p>Canonical changes remain subject to human approval. You can revoke this connection in Command → Machine access.</p>
-  <small>Return to: ${escape(new URL(params.get('redirect_uri')).origin)}. Client name is supplied by the connecting application.</small>
+  <small>Return to: ${escape(callbackOrigin)}. Client name is supplied by the connecting application.</small>
   <form method="post" action="/oauth/authorize">${hidden}<input type="hidden" name="scope" value="${escape(scopes.join(' '))}"><input type="hidden" name="csrf" value="${csrf}"><button name="decision" value="deny">Cancel</button><button name="decision" value="allow">Allow connection</button></form></main></html>`,
-  {headers:{'content-type':'text/html; charset=utf-8','cache-control':'no-store','referrer-policy':'same-origin','content-security-policy':"default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",'set-cookie':`${cookieName}=${csrf}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=600`}});
+  {status,headers:{'content-type':'text/html; charset=utf-8','cache-control':'no-store','referrer-policy':'same-origin','content-security-policy':`default-src 'none'; style-src 'unsafe-inline'; form-action 'self' ${callbackOrigin}; frame-ancestors 'none'; base-uri 'none'`,'set-cookie':`${cookieName}=${csrf}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=600`}});
 }

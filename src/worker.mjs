@@ -1,3 +1,4 @@
+import { connectionsPageHtml } from "./console/connections-page.mjs";
 import {activePolicy} from './command/governance-admin.mjs';
 import { authorizeGovernance } from "./auth/governance.mjs";
 import { createHttpGateway } from "./gateway/http-gateway.mjs";
@@ -15,6 +16,7 @@ export default {
   async fetch(request, env = {}) {
     try {
       const url = new URL(request.url);
+      if (request.method === "GET" && url.pathname === "/connect") return html(connectionsPageHtml({ origin: url.origin }));
 
       if (request.method === "GET" && url.pathname === "/login") return html(authPageHtml({ mode: "login", returnTo: url.searchParams.get('return_to') || '' }));
       if (request.method === "GET" && url.pathname === "/signup") return html(authPageHtml({ mode: "signup", returnTo: url.searchParams.get('return_to') || '' }));
@@ -50,6 +52,7 @@ export default {
         authenticate,
         files,
         health: async () => productionHealth({ env, persistence }),
+        authenticationConfigured: Boolean(env.NEON_AUTH_BASE_URL),
         prepareRequest: async ({ auth, request }) => {
           if (!persistence) throw new SovereignError("database_not_configured", "DATABASE_URL is required for the production Sovereign runtime.", { status: 503 });
           const binding = await persistence.resolveAuthBinding(auth.authSubject);

@@ -2,13 +2,15 @@
 
 Project Sovereign is a vendor-neutral persistent AI intelligence platform. It gives a person or organization a durable, portable intelligence and continuity layer that survives individual chats, models, agents, providers and devices.
 
-**Status:** V0.2 alpha deployed; V1 implementation and acceptance in progress. Production uses the Neon snapshot bridge until migration 0004 is approved and the normalized runtime is deployed.
+**Status:** Live alpha with normalized Neon persistence, R2 storage, OAuth MCP and a scoped HTTP API. V1 acceptance remains in progress. Production was verified on October 14, 2026; the snapshot is a rollback mirror, not the operational authority.
 **First tenant:** RICE
 **Architecture:** four core modules — COMMAND, INTELLIGENCE, CONTROL PLANE, CONTINUITY
 
 Protocol is the platform compatibility/lifecycle contract rather than a peer module. Specialized workflow products such as Queue Tracker and Idea Tracker are external extensions, not Sovereign core.
 
 RICE is the first user and alpha tester, but Sovereign is built independently and must not require RICE-specific companies, repositories, business hierarchies or AI providers.
+
+Connect your AI tools at [the connection guide](https://project-sovereign.ricecloud.workers.dev/connect). It includes the MCP endpoint, authentication choices, shared-memory instructions and a two-way acceptance checklist. Each client needs its own authorized connection.
 
 Start with:
 
@@ -28,7 +30,7 @@ The first working vertical slice is a provider-neutral Control Plane runtime:
 - a basic authenticated Control Plane traffic board;
 - a fail-closed production auth seam, plus a deterministic local test adapter.
 
-The deployed alpha has Neon Auth, the RICE tenant, R2 uploads and durable snapshot persistence. This branch replaces operational snapshot authority with normalized Neon tables and adds PostgreSQL search and source-backed extractive Ask. The snapshot remains a rollback/parity mirror. See the cutover status and safeguards in [`docs/V1.md`](docs/V1.md); code in a branch is not evidence of production deployment.
+The deployed alpha has Neon Auth, the RICE tenant, R2 uploads, normalized Neon tables, PostgreSQL search and source-backed extractive Ask. The snapshot remains a rollback/parity mirror. See the cutover status and safeguards in [`docs/V1.md`](docs/V1.md); code in a branch is not evidence of production deployment.
 
 Read the current implementation authority in this order:
 

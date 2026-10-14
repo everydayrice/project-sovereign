@@ -3,6 +3,19 @@ main = "src/worker-entry.mjs"
 compatibility_date = "2026-09-03"
 keep_vars = true
 
+[observability]
+enabled = true
+redact_query_string = true
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+invocation_logs = false
+persist = true
+
+[observability.traces]
+enabled = false
+
 [secrets]
 required = ["DATABASE_URL"]
 

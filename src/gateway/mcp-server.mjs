@@ -111,7 +111,14 @@ export function createMcpServer({ persistence, retrieval, authenticateService, i
       let requestId = null;
       try {
         assertTransport(request, allowedOrigins);
-        if (request.method !== "POST") return new Response(null, { status: 405, headers: { Allow: "POST" } });
+        if (request.method !== "POST") {
+          // A client may probe the stream endpoint before sending initialize.
+          // Authenticate GET first so disconnected clients receive the same
+          // OAuth discovery challenge as POST. Authenticated streaming remains
+          // unsupported by this stateless transport.
+          if (request.method === "GET") await authenticateService(request);
+          return new Response(null, { status: 405, headers: { Allow: "POST" } });
+        }
         const body = await request.json().catch(() => null);
         requestId = body?.id ?? null;
         if (!body || body.jsonrpc !== "2.0" || typeof body.method !== "string") return mcpError(requestId, -32600, "Invalid JSON-RPC request.");

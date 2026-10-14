@@ -163,6 +163,11 @@ test('MCP returns HTTP auth challenges, negotiated versions, and empty notificat
   const response=await denied.fetch(request());
   assert.equal(response.status,401);
   assert.match(response.headers.get('www-authenticate'),/oauth-protected-resource/);
+  for (const headers of [{}, {authorization:'Bearer svk_expired'}]) {
+    const probe=await denied.fetch(new Request('https://sovereign.test/mcp',{headers}));
+    assert.equal(probe.status,401);
+    assert.equal(probe.headers.get('www-authenticate'),response.headers.get('www-authenticate'));
+  }
   const server=createMcpServer({authenticateService:async()=>({permissions:[]})});
   assert.equal((await (await server.fetch(request())).json()).result.protocolVersion,'2025-06-18');
   const notification=await server.fetch(mcpRequest('notifications/initialized',{},undefined));

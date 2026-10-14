@@ -16,6 +16,7 @@ import { serviceCredentialsPageHtml } from "./console/service-credentials-page.m
 import { RetrievalService } from "./intelligence/retrieval-service.mjs";
 import { createIdeaStore } from "./continuity/idea-store.mjs";
 import { createMcpServer } from "./gateway/mcp-server.mjs";
+import { observeConnection } from "./gateway/connection-diagnostics.mjs";
 import { createMcpOAuth } from "./auth/mcp-oauth.mjs";
 import { createMcpOAuthStore } from "./auth/mcp-oauth-store.mjs";
 import { createServiceHttpGateway } from "./gateway/service-http-gateway.mjs";
@@ -35,7 +36,7 @@ export default {
 
       if (url.pathname.startsWith('/oauth/') || url.pathname.startsWith('/.well-known/oauth-')) {
         if (!persistence) throw new SovereignError('database_not_configured','Sovereign storage is unavailable.',{status:503});
-        return createMcpOAuth({store:createMcpOAuthStore(env.DATABASE_URL),authenticate,resolveBinding:subject=>persistence.resolveAuthBinding(subject)}).fetch(request);
+        return observeConnection(request, () => createMcpOAuth({store:createMcpOAuthStore(env.DATABASE_URL),authenticate,resolveBinding:subject=>persistence.resolveAuthBinding(subject)}).fetch(request));
       }
 
       if (request.method === "GET" && url.pathname === "/v1/export") {
@@ -68,13 +69,13 @@ export default {
 
       if (url.pathname === "/mcp") {
         requireMachineRuntime({ persistence, retrieval, authenticateService });
-        return createMcpServer({
+        return observeConnection(request, () => createMcpServer({
           persistence,
           retrieval,
           authenticateService,
           ideaStore,
           allowedOrigins: parseOrigins(env.MCP_ALLOWED_ORIGINS)
-        }).fetch(request);
+        }).fetch(request));
       }
 
       if (url.pathname === "/api/v1" || url.pathname.startsWith("/api/v1/")) {

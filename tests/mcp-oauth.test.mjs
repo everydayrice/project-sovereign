@@ -61,7 +61,8 @@ test('OAuth discovery, explicit consent, PKCE, code replay and refresh rotation'
   assert.equal((await ctx.post('/oauth/token',exchange)).status,400);
   const refresh={grant_type:'refresh_token',client_id:params.client_id,resource:params.resource,refresh_token:tokens.refresh_token};
   assert.equal((await ctx.post('/oauth/token',{...refresh,resource:'https://wrong.test/mcp'})).status,400);
-  assert.equal((await ctx.post('/oauth/token',refresh)).status,200);
+  const withoutResource={...refresh};delete withoutResource.resource;
+  assert.equal((await ctx.post('/oauth/token',withoutResource)).status,200);
   assert.equal((await ctx.post('/oauth/token',refresh)).status,400);
 });
 

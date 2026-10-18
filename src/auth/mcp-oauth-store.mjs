@@ -48,7 +48,7 @@ export function createMcpOAuthStore(databaseUrl, { sql = neon(databaseUrl) } = {
         UPDATE command.oauth_grants g SET consumed_at=COALESCE(g.consumed_at,now()),
           used_refresh_hashes=CASE WHEN g.refresh_hash IS NULL THEN g.used_refresh_hashes ELSE g.used_refresh_hashes || to_jsonb(g.refresh_hash) END,
           refresh_hash=$6,
-          refresh_expires_at=COALESCE(g.refresh_expires_at,now()+interval '30 days')
+          refresh_expires_at=now()+interval '30 days'
         FROM command.service_credentials c,command.principals p,command.principals owner,command.tenants t
         WHERE g.client_id=$1 AND g.resource=$2 AND ${predicate}
           AND c.service_credential_id=g.service_credential_id AND c.tenant_id=g.tenant_id AND c.state='active'

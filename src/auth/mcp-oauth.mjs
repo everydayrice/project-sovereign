@@ -95,7 +95,7 @@ export function createMcpOAuth({ store, authenticate, resolveBinding }) {
           if (p.has('client_secret') || p.has('client_assertion')) fail('invalid_client','This client uses public-client PKCE authentication.');
           const client = await store.client(p.get('client_id'));
           if (!client) fail('invalid_client','Unknown OAuth client.');
-          if (p.get('resource') !== resource) fail('invalid_target','Invalid MCP resource.');
+          if (p.has('resource') && p.get('resource') !== resource) fail('invalid_target','Invalid MCP resource.');
           let challenge = '';
           if (grantType === 'authorization_code') {
             const verifier = p.get('code_verifier') || '';
@@ -105,7 +105,8 @@ export function createMcpOAuth({ store, authenticate, resolveBinding }) {
           }
           const presented = p.get(grantType === 'authorization_code' ? 'code' : 'refresh_token');
           if (!presented || presented.length > 256) fail('invalid_grant','Missing or invalid grant.');
-          if (p.has('scope')) fail('invalid_scope','Omit scope during token exchange to retain the permissions explicitly approved by the user.');
+          // OAuth token requests may repeat a requested scope; never grant anything beyond the original consent.
+          if (p.has('scope') && !p.get('scope').trim()) fail('invalid_scope','Scope must not be empty.');
           // OAuth tokens have a distinct prefix and are accepted only at their stored resource.
           const access = `svk_oauth_${random()}`;
           const refresh = random();

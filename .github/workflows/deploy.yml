@@ -21,6 +21,7 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment: production
     steps:
       - name: Checkout production source
         uses: actions/checkout@v4

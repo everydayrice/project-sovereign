@@ -117,6 +117,8 @@ export function createMcpOAuth({ store, authenticate, resolveBinding }) {
         }
         return json({error:'invalid_request',error_description:'Method not allowed.'},405);
       } catch (error) {
+        // Log only a bounded error category, never credentials, query data, or callback URLs.
+        if (url.pathname === '/oauth/token') console.info({event:'sovereign_oauth_token_rejected',category:['invalid_request','invalid_client','invalid_grant','invalid_scope','invalid_target','unsupported_grant_type'].includes(error.oauthCode)?error.oauthCode:'server_error',status:error.status||500});
         if (url.pathname === '/oauth/authorize') {
           return recoveryPage({
             title:error.status===401?'Sign-in expired':'Connection not completed',

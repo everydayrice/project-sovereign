@@ -37,15 +37,15 @@ jobs:
           npm test
       - name: Verify Cloudflare deployment authentication
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN || secrets.CLOUDFLARE_WORKERS_API_TOKEN || secrets.CLOUDFLARE_TOKEN }}
         run: |
           if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
-            echo "::error::The repository is missing the CLOUDFLARE_API_TOKEN Actions secret. Deployment has not been attempted."
+            echo "::error::No existing Cloudflare deployment API token is available to this GitHub repository. Deployment has not been attempted."
             exit 1
           fi
       - name: Deploy production Worker
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN || secrets.CLOUDFLARE_WORKERS_API_TOKEN || secrets.CLOUDFLARE_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: b335ec693fe163eaf8af9d42053e00fa
           CI: "true"
         run: npx --yes wrangler@4 deploy
